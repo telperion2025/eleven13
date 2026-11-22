@@ -1,5 +1,0 @@
-{
-  "memory_words": "0o20000",
-  "devices": ["dl11_console", "kw11l", "pc11"],
-  "volumes": {}
-}
