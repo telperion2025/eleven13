@@ -1,0 +1,23 @@
+# Glossary (spec §20)
+
+- **APR** — Active Page Register (MMU page descriptor pair, §5.7: PAR+PDR per 64-byte page)
+- **BG/BR** — Bus Grant / Bus Request, Unibus interrupt daisy chain (§6.1)
+- **BIAK/BDMG** — Q-Bus equivalents of interrupt-acknowledge and DMA-grant lines
+- **CIS** — Commercial Instruction Set, string-oriented instruction group (§5.4)
+- **CSR** — Control and Status Register, any device's programming window
+- **EIS** — Extended Instruction Set (MUL/DIV/ASH/ASHC and friends)
+- **FP11/FPJ** — floating-point processor option (11/70) / on-chip unit (J-11)
+- **IOPage** — the top-8 KB I/O register window (§6.2)
+- **IPL** — Interrupt Priority Level, PSW bits 7-5
+- **LSI-11** — the KD11-F microcoded CPU used in the 11/03 (Q-Bus machine)
+- **Massbus** — 11/70's disk/tape bus feeding RH70 controllers (§6, §7)
+- **M9312** — boot/diagnostic terminator module carrying boot PROMs (§9, §13)
+- **MAINDEC** — DEC's factory diagnostic program name prefix (§11.1)
+- **MMR0-3** — MMU diagnostic registers (§5.7)
+- **NPR** — Non-Processor Request: Unibus DMA grant level (§6.1)
+- **ODT** — Octal Debugging Tool: the HALT-mode console (`@` prompt, §9)
+- **PAR/PDR** — Page Address / Page Description Register pair inside an APR
+- **PSW** — Program Status Word (bit layout in `pdp11/cpu/registers.py`)
+- **Q22-CD** — extended 22-bit Q-Bus addressing used on the 11/94
+- **RT-11, RSTS/E, RSX-11M** — operating systems used as acceptance targets (§11)
+- **SIMH** — the historical simulator suite the container formats interoperate with (§16)
