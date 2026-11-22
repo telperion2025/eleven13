@@ -1,0 +1,33 @@
+[project]
+name = "eleven13"                     # distribution/CLI name (13 octal = 11 decimal)
+version = "0.1.0"
+description = "Modular DEC PDP-11 emulator: /03, /20, /70, /94"
+requires-python = ">=3.11,<3.13"
+dependencies = []                      # core is stdlib-only; this is a hard rule (spec §18.1)
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5", "mypy>=1.10"]
+pixel = ["pygame>=2.5"]                # optional pixel render backend (spec §8), not core
+
+[project.scripts]
+eleven13 = "pdp11.main:main"           # CLI entry point: `eleven13 --machine 11/70`
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]   # pycodestyle, pyflakes, isort, bugbear, pyupgrade
+
+[tool.ruff.lint.per-file-ignores]
+# BusDevice.reset/tick are intentional overridable no-ops (spec §17.4), not
+# missing abstract methods — B027 is a false positive there.
+"pdp11/bus/abstract_bus.py" = ["B027"]
+
+[tool.mypy]
+strict = true                          # public interfaces carry full type hints (spec §10.5)
+
+[tool.pytest.ini_options]
+testpaths = ["pdp11/tests"]
+# §3 fixes the test module names cpu_golden.py / device_unit.py /
+# machine_diagnostics.py; collect them alongside test_*.py.
+python_files = ["test_*.py", "cpu_golden.py", "device_unit.py", "machine_diagnostics.py"]
