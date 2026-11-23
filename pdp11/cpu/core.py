@@ -285,10 +285,15 @@ class CPU:
                 # bus timeout / MMU page fault (§5.5): the machine layer catches
                 # the hardware signal here. MMUAbort carries its own vector
                 # (000250 when MMR0 TENB is set, else 000004 — cpu/mmu.py).
-                if isinstance(exc, MMUAbort) and exc.vector != 0o000004:
-                    traps.trap(self, exc.vector, instr_addr)
-                else:
-                    traps.bus_error(self, instr_addr)
+                try:
+                    if isinstance(exc, MMUAbort) and exc.vector != 0o000004:
+                        traps.trap(self, exc.vector, instr_addr)
+                    else:
+                        traps.bus_error(self, instr_addr)
+                except BusInit:
+                    # double fault: the vector fetch/stack push faulted too —
+                    # the real 11/70 stops the CPU here (§22.4)
+                    st.halted = True
                 trapped = True
             if not trapped and not st.halted and st.psw.get(PSW.T):
                 traps.trap(self, traps.VECTOR_TRACE)   # T-bit: trace after instruction

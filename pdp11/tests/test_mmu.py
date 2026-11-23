@@ -228,3 +228,18 @@ def test_mfpi_reads_previous_mode_space():
     cpu.step()                                               # MFPI @#0o2000
     assert board.ram.read_word(0o2000) == 0o777              # landed in current (kernel) space
     assert board.ram.read_word(0o202000) == 0o777            # previous-space source untouched
+
+
+def test_double_fault_halts_cpu():
+    """A page fault while fetching the abort vector (kernel D page 0
+    unmapped) is a double fault: the real 11/70 stops the CPU (§22.4) —
+    the abort must not escape step() as an uncaught exception."""
+    cpu, board = make_machine("11/70", program=[0o016001], pc=0o100)  # MOV @R0,R1
+    cpu.state.R[0] = 0o040000                                # page 2 unmapped
+    board.write_word(0o172340, 0)                            # KIPAR0 identity (I space)
+    board.write_word(0o172300, RW_PAGE)                      # KIPDR0
+    # KDPAR0/KDPDR0 left 0: the vector fetch in kernel D space faults too
+    board.write_word(0o172516, MMR3_KDS)
+    board.write_word(0o177572, MMR0_MME | MMR0_TENB)
+    cpu.step()
+    assert cpu.state.halted

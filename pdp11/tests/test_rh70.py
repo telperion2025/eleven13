@@ -15,8 +15,11 @@ from pdp11.bus.massbus import (
     CS1_GO,
     CS1_IE,
     CS1_TRE,
+    CS2_CLR,
+    CS2_ERR,
     CS2_IR,
     CS2_NED,
+    CS2_OR,
     CS2_PGE,
     FNC_READ,
     FNC_SEEK,
@@ -29,6 +32,7 @@ from pdp11.bus.massbus import (
     RHWC,
     RPCC,
     RPDA,
+    RPDA_SURF_SHIFT,
     RPDC,
     RPDS,
     VECTOR_RP,
@@ -159,3 +163,36 @@ def test_open_disk_image_sniffs_rp_containers(tmp_path):
     with open(p7, "wb") as f:
         f.truncate(RP_SECTOR * RP07_SECTORS)
     assert open_disk_image(str(p7)).sector_count == RP07_SECTORS
+
+
+def test_rh70_multisector_wraps_track_boundary(tmp_path):
+    """A transfer spanning more than one sector must auto-increment RPDA
+    across the track boundary (sector -> surface wrap), not crash."""
+    rh, board, _clock, image = make_rh70(tmp_path)
+    for n in range(23):                          # sectors 0..22 (track = 22)
+        pack_rp_sector(image, n, seed=0o100000 + n * 0o1000)
+    board.write_word(RH70_BASE + RHWC, (-23 * 256) & 0o177777)   # 23 sectors
+    board.write_word(RH70_BASE + RHBA, 0)
+    board.write_word(RH70_BASE + RPDA, 0)        # start sector 0, surface 0
+    board.write_word(RH70_BASE + RHCS2, 0)
+    board.write_word(RH70_BASE + RHCS1, CS1_IE | (FNC_READ << CS1_FNC_SHIFT) | CS1_GO)
+    assert run_dma(board, rh) == 23 * 256
+    assert board.ram.read_word(0) == 0o100000                    # sector 0
+    assert board.ram.read_word(22 * 256 * 2) == 0o126000          # sector 22 word 0
+    cs1 = board.read_word(RH70_BASE + RHCS1)
+    assert cs1 & CS1_DONE and not cs1 & CS1_TRE
+    assert board.read_word(RH70_BASE + RPDA) == (1 << RPDA_SURF_SHIFT) | 0  # surface 1
+
+
+def test_rh70_clr_clears_error_bits(tmp_path):
+    """CS2 CLR (bit 6) resets the controller INCLUDING the error bits."""
+    rh, board, _clock, _img = make_rh70(tmp_path)
+    board.write_word(RH70_BASE + RHCS2, 1)                  # unit 1 -> NED
+    board.write_word(RH70_BASE + RHCS1, CS1_IE | (FNC_READ << CS1_FNC_SHIFT) | CS1_GO)
+    assert board.read_word(RH70_BASE + RHCS2) & CS2_NED
+    board.write_word(RH70_BASE + RHCS2, CS2_CLR)
+    cs2 = board.read_word(RH70_BASE + RHCS2)
+    assert not cs2 & CS2_ERR
+    assert cs2 & CS2_IR and cs2 & CS2_OR
+    cs1 = board.read_word(RH70_BASE + RHCS1)
+    assert cs1 & CS1_DONE and not cs1 & CS1_TRE

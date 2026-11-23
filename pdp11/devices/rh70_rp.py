@@ -156,6 +156,19 @@ class RPDrive:
                                  surfaces=self.surfaces,
                                  sectors_per_track=self.sectors_per_track)
 
+    def next_rpda(self, rpda: int) -> int | None:
+        """RPDA of the sector following `rpda` in a sequential transfer:
+        wraps sector -> surface within the current cylinder; None past the
+        last surface (a real drive needs a seek there — the caller errors)."""
+        _cyl, surf, sect = self.disk_address(rpda)
+        sect += 1
+        if sect >= self.sectors_per_track:
+            sect = 0
+            surf += 1
+            if surf >= self.surfaces:
+                return None
+        return (surf << RPDA_SURF_SHIFT) | sect
+
     def read_sector(self, rpda: int) -> bytes:
         n = self.sector_number(rpda)
         self.sectors_read += 1
@@ -208,7 +221,7 @@ class RH70(BusDevice):
         self.cs1 = CS1_DONE
         self.wc = 0
         self.ba = 0
-        self.cs2 = (self.cs2 & ~CS2_RW & 0o177777) | CS2_IR | CS2_OR
+        self.cs2 = CS2_IR | CS2_OR      # CLR also clears the error bits
         self.db = 0
         self.bae = 0
         self.cs3 = 0
@@ -421,9 +434,19 @@ class RH70(BusDevice):
             if self._writing:
                 self.drive.write_sector(self.rpda, bytes(self._buffer))
             if self._remaining > 0:
-                # next sector: same surface/sector+1 wraps via RPDA increment
-                self.rpda = (self.rpda & ~RPDA_SECT_MASK) | ((self.rpda + 1) & RPDA_SECT_MASK)
-                self._load_sector()
+                # next sector: RPDA auto-increments, wrapping sector->surface
+                nxt = self.drive.next_rpda(self.rpda)
+                if nxt is None:
+                    self._active = False
+                    self._error(CS2_NED)          # past cylinder end: needs a seek
+                    return
+                self.rpda = nxt
+                try:
+                    self._load_sector()
+                except ValueError:
+                    self._active = False
+                    self._error(CS2_NED)
+                    return
             else:
                 self._active = False
                 self._complete()

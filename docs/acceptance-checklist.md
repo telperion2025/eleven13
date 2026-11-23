@@ -150,3 +150,15 @@ Version 1 is complete when all eleven criteria pass. Status after M3:
     space and the banked per-mode SP). RTI restores the mode via
     `switch_mode` after both pops. **Register-set (RS bit 11) banking of
     R0-R5 is stored but not switched** (§22.4).
+21. M5 review pass (PR #3): (a) a page fault while fetching the abort vector
+    (double fault) now **halts the CPU** in `core.step` instead of escaping
+    as an uncaught `MMUAbort` — matches the real 11/70 stop (§22.4);
+    `test_mmu.py::test_double_fault_halts_cpu`. (b) RH70 multi-sector
+    transfers now auto-increment RPDA with sector→surface wrap
+    (`RPDrive.next_rpda`) and error NED past the cylinder end instead of
+    crashing (`test_rh70.py::test_rh70_multisector_wraps_track_boundary`);
+    CS2 CLR now clears the error bits too
+    (`test_rh70.py::test_rh70_clr_clears_error_bits`). (c) Noted convention:
+    on 22-bit profiles the flat alias 0o160000-0o200000 shadows RAM there for
+    ALL physical accesses incl. Massbus — consistent with the M2 I/O-page
+    convention, flagged §22.4.
