@@ -67,6 +67,14 @@ class MemoryInterface(Protocol):
     def write_word(self, addr: int, value: int) -> None: ...
     def read_byte(self, addr: int) -> int: ...
     def write_byte(self, addr: int, value: int) -> None: ...
+    def poll_interrupt(self) -> tuple[int, int] | None:
+        """Bus arbitration result (vector, ipl) or None — the CPU asks the
+        BUS, never the devices directly (§6.1)."""
+        ...
+    def service_dma(self) -> int:
+        """NPR cycle stealing at word granularity (§5.5/§6.1): returns the
+        number of bus cycles stolen from the CPU by DMA this instruction."""
+        ...
 
 
 Handler = Callable[["CPU"], None]
@@ -234,13 +242,16 @@ class CPU:
         bus.begin_instruction()
         if st.halted:
             return                            # parked: ODT owns the machine (§9)
-        if interrupts.service(self, self.devices):
+        # NPR cycle stealing FIRST — it outranks BR (§6.1). The stolen cycles
+        # are the DMA words' bus transfers, already counted in cycles_used.
+        bus.service_dma()
+        if interrupts.service(self, bus.poll_interrupt()):  # then the BR grant
             # interrupt taken between instructions (§5.5): vector fetch cost only
-            cost = COSTS[0o00]
+            cost = COSTS[0o00] + bus.cycles_used
         elif st.waiting:
             # WAIT: park until an interrupt outranks the PSW IPL (§5.5); the
             # clock still advances one cycle so scheduled events can fire.
-            cost = 1
+            cost = 1 + bus.cycles_used
         else:
             instr_addr = st.R[Reg.PC]
             op_word = 0

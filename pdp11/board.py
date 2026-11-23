@@ -21,7 +21,9 @@ from __future__ import annotations
 from typing import Any, NoReturn
 
 from pdp11.bus.abstract_bus import BusDevice, BusInit
-from pdp11.config.profiles import BusErrorModel, MachineProfile
+from pdp11.bus.unibus import Unibus
+from pdp11.config.profiles import BusErrorModel, BusType, MachineProfile
+from pdp11.cpu import interrupts
 from pdp11.cpu.core import CPU
 from pdp11.cpu.registers import PSW, Reg
 from pdp11.memory.io_page import IOPPage
@@ -95,7 +97,12 @@ class SystemBoard:
             profile.max_ram_words, profile.iopage_base >> 1)
         self.ram = RAM(words)
         self.io_page = IOPPage(profile.iopage_base)
-        self.devices: list[BusDevice] = []       # bus order = priority order (§6.1)
+        # M2: Unibus machines get a real Unibus arbiter (NPR/BR daisy chain,
+        # §6.1); the board's device list IS the backplane slot order.
+        # Q-Bus profiles keep the plain list until M4/M6 (qbus.py).
+        self.unibus: Unibus | None = (
+            Unibus(profile.physical_bits) if profile.bus is BusType.UNIBUS else None)
+        self.devices: list[BusDevice] = self.unibus.devices if self.unibus else []
         self.cpu = CPU(profile, clock)
         self.cpu.bus = self                      # the single MemoryInterface (§4.2)
         self.cpu.devices = self.devices
@@ -182,7 +189,34 @@ class SystemBoard:
 
     # -- device attachment (M2+) ---------------------------------------------
     def attach_device(self, address: int, device: BusDevice) -> None:
-        """Attach a device window at octal `address` and append it to the
-        bus-ordered device list (slot order = daisy-chain priority, §6.1)."""
+        """Attach a device window at octal `address` and plug it into the next
+        backplane slot (slot order = daisy-chain priority, §6.1)."""
         self.io_page.attach(address, device)
-        self.devices.append(device)
+        if self.unibus is not None:
+            self.unibus.attach(device)
+        else:
+            self.devices.append(device)
+
+    # -- bus arbitration face for the CPU (§6.1: the CPU asks the bus) ---------
+    def poll_interrupt(self) -> tuple[int, int] | None:
+        """BR/BG daisy-chain grant: (vector, ipl) or None. On Unibus machines
+        the Unibus arbiter decides; other buses fall back to a plain
+        slot-order scan until their modules land (M4/M6)."""
+        if self.unibus is not None:
+            return self.unibus.grant_interrupt()
+        return interrupts.pending(self.devices)
+
+    def service_dma(self) -> int:
+        """NPR cycle stealing at word granularity (§5.5/§6.1): grant the bus
+        to the first DMA-requesting slot and let it run one transfer step.
+        Every word it moves through read_word/write_word is already counted
+        in cycles_used by the routing layer; the return value is the number
+        of stolen cycles to charge to the current instruction (≥ 1)."""
+        if self.unibus is None:
+            return 0
+        dev = self.unibus.grant_dma()
+        if dev is None:
+            return 0
+        before = self.cycles_used
+        dev.tick()                            # the device moves its data via the bus
+        return max(1, self.cycles_used - before)   # one cycle per word, at least one

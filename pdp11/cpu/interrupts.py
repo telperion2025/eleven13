@@ -46,16 +46,15 @@ def pending(devices: Iterable[BusDevice]) -> tuple[int, int] | None:
     return best
 
 
-def service(cpu: CPU, devices: Iterable[BusDevice]) -> bool:
+def service(cpu: CPU, req: tuple[int, int] | None) -> bool:
     """
-    Sample interrupts once (called by CPU.step before each fetch).
+    Vector one interrupt whose request the BUS arbiter already granted
+    (CPU.step passes bus.poll_interrupt(); §6.1 — the CPU never polls
+    devices directly).
 
-    Returns True if an interrupt was vectored. A WAITing CPU wakes on ANY
-    pending interrupt, but only vectors if the request outranks the PSW IPL
-    (§5.5); otherwise it stays parked with waiting cleared only when the
-    request could be taken.
+    Returns True if the interrupt was vectored. It is taken only if the
+    request's BR level outranks the PSW IPL (§5.5).
     """
-    req = pending(devices)
     if req is None:
         return False
     vector, ipl = req

@@ -356,6 +356,9 @@ class _FakeDev:
     def interrupt_pending(self) -> tuple[int, int] | None:
         return self._req
 
+    def dma_request(self) -> bool:
+        return False                       # BusDevice default (M2 arbitration)
+
 
 def test_interrupt_priority_logic():
     cpu, b = make_machine(program=[0o000240], pc=0o000100)                 # NOP

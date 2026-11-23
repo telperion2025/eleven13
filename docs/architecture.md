@@ -109,7 +109,7 @@ gates, custom TRACE (level 5) the fetch/decode path (spec §18.3).
 | `pdp11/cpu/traps.py`, `interrupts.py` | vectors, IPL logic | done (flat mode) |
 | `pdp11/cpu/mmu.py`, `cpu/fp11.py` | MMU, FP11 engine | stubs (M5/M6) |
 | `pdp11/memory/` | RAM, ROM, I/O page, map registers | RAM/ROM/IOPage done; maps stub |
-| `pdp11/bus/` | BusDevice ABC; Unibus/Q-Bus/Massbus | ABC done; buses stub (M2/M4/M5/M6) |
+| `pdp11/bus/` | BusDevice ABC; Unibus/Q-Bus/Massbus | ABC + Unibus arbitration done (M2); Q-Bus/Massbus stubs (M4/M6, M5) |
 | `pdp11/devices/` | DL11…KW11-P | documented stubs (M2–M6) |
 | `pdp11/graphics/` | terminals + render backends | stubs (M7) |
 | `pdp11/disk_images/` | SIMH-compatible containers | stubs (M3/M8) |

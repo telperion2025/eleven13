@@ -11,7 +11,7 @@ submission:
 | 4 | RSTS/E or RSX-11M boots on 11/70 from an RP06 (RH70/Massbus), MMU across kernel/supervisor/user | M5 |
 | 5 | 11/20 no-ops microcoded-only instructions rather than executing them | **done at CPU level** — `test_1120_noops_microcoded_only_opcodes` + `test_eis_raises_notimplemented_on_eis_fitted_machine` (capability gate, spec §5.4); MAINDEC CK41 cross-check per §22.5 R1 |
 | 6 | Console DL11 traffic end-to-end with the VT100 frontend on all profiles | M2/M7 |
-| 7 | Timing tests: KW11-L ticks, Q-Bus DMA, Unibus NPR priority interact causally (not wall clock) | scheduler core **done** (`test_clock_is_deterministic_across_replays`, `test_clock_events_drain_during_run`); device-level scenarios M2–M6 |
+| 7 | Timing tests: KW11-L ticks, Q-Bus DMA, Unibus NPR priority interact causally (not wall clock) | scheduler core **done** (`test_clock_is_deterministic_across_replays`, `test_clock_events_drain_during_run`); Unibus NPR/BR arbitration **done in M2** (`test_unibus.py`: NPR outranks BR, daisy-chain slot order, word-granularity cycle stealing); device-level scenarios M2–M6 |
 | 8 | Mid-boot snapshot restores byte-identically and continues identically | M8 (snapshot.py; device serialize contract already in place) |
 | 9 | Power-fail/restore (vector 000024) exercised with orderly shutdown + auto-restart | M8 (`--powerfail`/`--powerrestore`) |
 | 10 | Every container format (incl. SIMH `.tap`) round-trips a SIMH-created image | M3/M8 (disk_images/) |
