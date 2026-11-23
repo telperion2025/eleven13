@@ -145,11 +145,11 @@ gates, custom TRACE (level 5) the fetch/decode path (spec §18.3).
 | `pdp11/board.py` | SystemBoard / MemoryInterface | done (flat 16-bit) |
 | `pdp11/cpu/core.py` | fetch/decode/execute, dispatch, cost table | done (M1 scope) |
 | `pdp11/cpu/registers.py` | R0–R7, PSW | done (§17.6) |
-| `pdp11/cpu/instructions/` | BASE handlers + gated EIS/FPU stubs | BASE done; EIS/FPU/CIS stubs |
+| `pdp11/cpu/instructions/` | BASE handlers + gated EIS/FPU/CIS | BASE done; EIS (M4), **CIS string ops (M6)**, FPU (M5) done; CIS decimal stubs |
 | `pdp11/cpu/traps.py`, `interrupts.py` | vectors, IPL logic | done (flat mode) |
 | `pdp11/cpu/mmu.py`, `cpu/fp11.py` | MMU, FP11 engine | **done (M5)** — see §7 |
-| `pdp11/memory/` | RAM, ROM, I/O page, map registers | RAM/ROM/IOPage done; **Unibus map done (M5)** |
-| `pdp11/bus/` | BusDevice ABC; Unibus/Q-Bus/Massbus | ABC + Unibus (M2) + Q-Bus BIAK/BDMG (M4) + **Massbus constants done (M5)** |
+| `pdp11/memory/` | RAM, ROM, I/O page, map registers | RAM/ROM/IOPage done; **Unibus map (M5) + Q22-CD map (M6)** |
+| `pdp11/bus/` | BusDevice ABC; Unibus/Q-Bus/Massbus | ABC + Unibus (M2) + Q-Bus BIAK/BDMG (M4, 22-bit on 11/94 M6) + **Massbus constants done (M5)** |
 | `pdp11/devices/dl11.py` | console DL11 | done (M2); other devices stubbed to their milestones |
 | `pdp11/control/front_panel.py`, `rom_loader.py` | ODT + boot PROMs | done (M2); debugger/snapshot stubs (M7/M8) |
 | `pdp11/graphics/` | terminal interfaces | ConsoleTerminal + StdioBackend done (M2); VT100/curses M7 |

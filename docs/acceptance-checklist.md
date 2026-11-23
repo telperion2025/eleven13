@@ -5,7 +5,7 @@ Version 1 is complete when all eleven criteria pass. Status after M3:
 | # | Criterion (spec §11) | Status |
 |---|---|---|
 | 1 | All four profiles assemble, enter ODT, run MAINDEC CPU diagnostics to a pass/fail report | profiles assemble, boot ROM path + ODT shell **done in M2** (`test_console.py`: 11/03 built-in bootstrap prints via DL11 and HALTs to ODT; 11/20 HALTs at 000000 into ODT); MAINDEC runs land M8 (`tests/machine_diagnostics.py`) |
-| 2 | RT-11 boots from an RX01 image on 11/03 and 11/94 | RX11 driver + RX01 container **done in M4**; the boot path (ready poll → READ via RXDB/TR handshake → BR5/264 interrupt → EMPTY 128 bytes to RAM) is verified end-to-end on the 11/03 (`test_console.py::test_rx01_boot_sector_end_to_end`). A *real* RT-11 RX01 image awaits the operator (§22.1); 11/94 profile lands M6 |
+| 2 | RT-11 boots from an RX01 image on 11/03 and 11/94 | RX11 driver + RX01 container **done in M4**; boot path verified end-to-end on the 11/03 (`test_console.py::test_rx01_boot_sector_end_to_end`); **11/94 profile assembled and boots the built-in bootstrap in M6** (`test_console.py::test_1194_*`). A *real* RT-11 RX01 image awaits the operator (§22.1) |
 | 3 | RT-11 boots from an RK05 image on 11/20 | RK11/RK05 driver + containers **done in M3**; the full boot path (I/O-page CSR writes → NPR word-at-a-time DMA → BR5/vector-220 completion interrupt) is verified end-to-end with a hand-built boot block (`test_console.py::test_rk05_boot_block_end_to_end`). Booting a *real* RT-11 image awaits an operator-supplied container (§22.1 — no image is fabricated) |
 | 4 | RSTS/E or RSX-11M boots on 11/70 from an RP06 (RH70/Massbus), MMU across kernel/supervisor/user | **M5 done at the machine level**: 11/70 MMU (3-mode I/D APR sets, MMR0-3, aborts via 000250/000004), Unibus map (BME-gated DMA face), RH70+RP06/RP07 Massbus driver, FP11 — `test_mmu.py`, `test_map.py`, `test_fp11.py`, `test_rh70.py`, `test_console.py` (11/70 assembly, RP06 `--disk`, bootstrap + `^` ODT display, MMU-on program path). Booting a *real* RSTS/RSX image awaits an operator-supplied RP06 container (§22.1 — no image is fabricated) |
 | 5 | 11/20 no-ops microcoded-only instructions rather than executing them | **done at CPU level** — `test_1120_noops_microcoded_only_opcodes` + `test_eis_raises_notimplemented_on_eis_fitted_machine` (capability gate, spec §5.4); MAINDEC CK41 cross-check per §22.5 R1 |
@@ -150,6 +150,25 @@ Version 1 is complete when all eleven criteria pass. Status after M3:
     space and the banked per-mode SP). RTI restores the mode via
     `switch_mode` after both pops. **Register-set (RS bit 11) banking of
     R0-R5 is stored but not switched** (§22.4).
+22. M6 (11/94, DCJ-11): (a) the spec assigns the 11/94 a Q-Bus with the
+    Q22-CD 22-bit map, while the real 11/94 is a Unibus machine (the 11/93
+    is the Q-Bus J-11) — the spec is followed and the divergence is flagged
+    §22.1. (b) Q22-CD map implemented as 16 entries × 256 KB blocks
+    (block = qa<21:18>), window at 0o170400 (22-bit mirror 0o17770400),
+    always in use for Q-Bus DMA (no enable bit, unlike the 11/70's MMR3
+    BME); applied on `board.dma_host` for 22-bit Q-Bus profiles.
+    (c) J-11 I/D split is via **MMR0 bit 3 (DSE)**, the convention spec §5.7
+    names — the 11/70 keeps MMR3 UDS/SDS/KDS (§22.4); MMR0 bit 3 is writable
+    only on the J-11 flavor. (d) DCJ11_STRICT now traps nonexistent memory
+    AND odd-address word access cleanly through vector 000004 (no LSI-11
+    byte-split); the J-11 micro-trap format differences vs the 11/70 are
+    flagged §22.4. (e) CIS: character-string ops implemented per SIMH
+    pdp11_cis.c (0o076xxx + inline variants: MOVC/MOVRC/MOVTC, LOCC/SKPC,
+    SCANC/SPANC, CMPC, MATC, L2DR/L3DR); packed-decimal ops (ADDN…/CRC)
+    raise NotImplementedError — deferred per spec §3/§22 R4, flagged §22.4;
+    CIS runs to completion (no FPD restart state, §22.4). (f) FPJ is
+    FP11-compatible at the ISA level — the existing 0o17xxxx handlers serve
+    the 11/94 via the FPU cap (`test_console.py::test_1194_fpj_instructions`).
 21. M5 review pass (PR #3): (a) a page fault while fetching the abort vector
     (double fault) now **halts the CPU** in `core.step` instead of escaping
     as an uncaught `MMUAbort` — matches the real 11/70 stop (§22.4);

@@ -19,10 +19,17 @@ the window sits at 0o172400-0o172477 (see pdp11/cpu/mmu.py docstring and
 docs/acceptance-checklist.md — on the real machine 772200 aliases the
 supervisor APRs in 18-bit space).
 
-The 11/94 Q22-CD map registers remain a documented stub (M6, §19.10).
+The 11/94 Q22-CD map (M6): 16 entries, each the 22-bit base of a 256 KB
+block of Q-Bus address space (block = qa<21:18>):
+    pa = (entry[block] + (qa & 0o3777777)) & 0o17777777
+The Q22-CD map is always in use on a 22-bit Q-Bus (no enable bit, unlike
+the 11/70's MMR3 BME); registers sit at Q-Bus 0o170400-0o170477 (22-bit
+mirror 0o17770400), 4-byte stride per entry (even word = entry<15:0>,
+odd word = entry<21:16>) — same storage format as the Unibus map. In this
+emulator's 16-bit I/O-page convention the window is at 0o170400.
 
 References: PDP-11/70 Processor Handbook Unibus Map chapter
-(EK-KB11C-TM-001); SIMH pdp11_io.c/pdp11_cpumod.c (§21).
+(EK-KB11C-TM-001); Q22-CD / J-11 documentation; SIMH pdp11_io.c/pdp11_cpumod.c (§21).
 """
 
 from __future__ import annotations
@@ -42,6 +49,12 @@ PHYS_MASK_22 = 0o17777777     # 22-bit physical
 # This emulator's 16-bit-convention window for the map registers.
 MAP_WINDOW_BASE = 0o172400
 MAP_WINDOW_SIZE = 0o100       # 32 entries x 4 bytes
+
+Q22_MAP_ENTRIES = 16          # 16 blocks of 256 KB = 4 MB (22-bit Q-Bus)
+Q22_BLOCK_SHIFT = 18          # qa<21:18> = map block number
+Q22_BLOCK_MASK = 0o777777     # offset within a 256 KB block (qa<17:0>)
+Q22_MAP_WINDOW_BASE = 0o170400
+Q22_MAP_WINDOW_SIZE = 0o100   # 16 entries x 4 bytes
 
 
 class UnibusMap(BusDevice):
@@ -108,6 +121,61 @@ class UnibusMap(BusDevice):
         self.entries = [e & PHYS_MASK_22 for e in state["entries"]]
 
 
-def _q22cd_not_implemented() -> None:
-    """The 11/94 Q22-CD map registers land with M6 (§12) — never guessed (§19.10)."""
-    raise NotImplementedError("§5.7 Q22-CD map registers (11/94) — M6")
+class Q22Map(BusDevice):
+    """The 11/94 Q22-CD map: 16 22-bit entries as an I/O-page register window
+    plus qa22 -> pa22 translation for Q-Bus DMA (§5.7/§6.1). Always in use on
+    a 22-bit Q-Bus."""
+
+    window_size = Q22_MAP_WINDOW_SIZE
+    name = "Q22MAP"
+
+    def __init__(self) -> None:
+        self.entries = [0] * Q22_MAP_ENTRIES
+
+    def translate(self, qa: int) -> int:
+        """Translate a 22-bit Q-Bus address to a 22-bit physical address."""
+        qa &= PHYS_MASK_22
+        block = (qa >> Q22_BLOCK_SHIFT) & 0o17
+        off = qa & Q22_BLOCK_MASK
+        return (self.entries[block] + off) & PHYS_MASK_22
+
+    def read_word(self, offset: int) -> int:
+        entry = (offset >> 2) & 0o17
+        val = self.entries[entry]
+        if offset & 2:
+            return (val >> 16) & 0o77
+        return val & 0o177777
+
+    def write_word(self, offset: int, value: int) -> None:
+        entry = (offset >> 2) & 0o17
+        v = value & 0o177777
+        if offset & 2:
+            self.entries[entry] = (self.entries[entry] & 0o177777) | ((v & 0o77) << 16)
+        else:
+            self.entries[entry] = (self.entries[entry] & 0o17760000) | v
+        self.entries[entry] &= PHYS_MASK_22
+
+    def read_byte(self, offset: int) -> int:
+        word = self.read_word(offset & 0o177774)
+        return word & 0o377 if offset % 2 == 0 else (word >> 8) & 0o377
+
+    def write_byte(self, offset: int, value: int) -> None:
+        reg = offset & 0o177774
+        cur = self.read_word(reg)
+        if offset % 2 == 0:
+            self.write_word(reg, (cur & 0o177400) | (value & 0o377))
+        else:
+            self.write_word(reg, (cur & 0o000377) | ((value & 0o377) << 8))
+
+    def reset(self) -> None:
+        self.entries = [0] * Q22_MAP_ENTRIES
+
+    def serialize(self) -> dict[str, Any]:
+        return {"entries": list(self.entries)}
+
+    def deserialize(self, state: dict[str, Any]) -> None:
+        if "entries" not in state:
+            raise ValueError("Q22Map snapshot missing 'entries'")
+        if len(state["entries"]) != Q22_MAP_ENTRIES:
+            raise ValueError("Q22Map snapshot has wrong entry count")
+        self.entries = [e & PHYS_MASK_22 for e in state["entries"]]

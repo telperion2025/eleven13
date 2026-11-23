@@ -353,3 +353,76 @@ def test_1170_mmu_on_program_path():
     assert cpu.state.halted
     assert board.mmu is not None and board.mmu.enabled
     assert board.ram.read_word(0o200000) == 0o1234
+
+
+# -- M6: 11/94 (DCJ-11) assembly, FPJ, Q22-CD map (spec §12) ---------------------
+
+
+def test_assemble_1194_devices():
+    """11/94: Q-Bus arbiter + MMU (J-11 flavor) + Q22-CD map; DL11/KW11L/RK11
+    attach (tqk11 is not implemented until its milestone and is skipped)."""
+    args = build_arg_parser().parse_args(["--machine", "11/94"])
+    board = assemble(args, ConsoleTerminal(FakeBackend()))
+    assert board.qbus is not None and board.unibus is None
+    assert board.qbus.addr_mask == 0o17777777              # 22-bit
+    assert board.mmu is not None and board.map is not None
+    assert [d.name for d in board.devices] == ["DL11", "KW11L", "RK11"]
+
+
+def test_1194_builtin_bootstrap_and_caret_odt():
+    """11/94 power-on (§13): built-in bootstrap at 173000 prints via DL11,
+    HALTs into ODT with the `^ address` display (has_mmu)."""
+    board, backend = make_board("11/94", input_bytes=b"Q\n")
+    rc = run(board, ConsoleTerminal(backend))
+    assert rc == 0
+    assert "non-authentic" in backend.text()
+    assert "^" in backend.text()
+
+
+def test_1194_fpj_instructions():
+    """The J-11 FPJ is FP11-compatible at the ISA level (§5.8): LDF/ADDF/STF
+    through the 0o17xxxx group work on the 11/94 (FPU cap on-chip)."""
+    from fractions import Fraction
+
+    from pdp11.cpu.fp11 import P_F
+    from pdp11.tests.cpu_golden import make_machine, step_n
+    # SETF ; LDF AC0,@#2000 ; ADDF AC0,@#2004 ; STF AC0,@#2010 ; HALT
+    cpu, board = make_machine(
+        "11/94",
+        program=[0o170001, 0o172437, 0o2000, 0o172037, 0o2004, 0o174037, 0o2010, 0o000000],
+        pc=0o100)
+    board.ram.write_word(0o2002, 0o040000)                 # 1.0F
+    board.ram.write_word(0o2006, 0o040200)                 # 2.0F
+    step_n(cpu, 5)
+    assert cpu.state.halted
+    assert cpu.state.fp._value(cpu.state.fp.ac[0], P_F) == Fraction(3)
+    assert board.ram.read_word(0o2012) == 0o40300          # 3.0F high word
+
+
+def test_1194_mmu_on_program_path():
+    """11/94 with the MMU on (J-11: MMR0 MME|DSE) — a store through the
+    kernel D-space APRs lands at the KDPAR physical page."""
+    from pdp11.tests.cpu_golden import make_machine, step_n
+    program: list[int] = []
+
+    def mov_abs(value: int, addr: int) -> None:
+        program.extend([0o012737, value, addr])
+
+    mov_abs(0, 0o172340)                             # KIPAR0 = 0
+    mov_abs(0o077406, 0o172300)                      # KIPDR0
+    mov_abs(0, 0o172360)                             # KDPAR0 = 0 (vector fetch)
+    mov_abs(0o077406, 0o172320)                      # KDPDR0
+    mov_abs(0o2000, 0o172364)                        # KDPAR2 -> PA 0o200000
+    mov_abs(0o077406, 0o172324)                      # KDPDR2
+    mov_abs(0o177600, 0o172356)                      # KIPAR7 -> I/O page
+    mov_abs(0o077406, 0o172316)                      # KIPDR7
+    mov_abs(0o177600, 0o172376)                      # KDPAR7
+    mov_abs(0o077406, 0o172336)                      # KDPDR7
+    mov_abs(0o011, 0o177572)                         # MMR0: MME | DSE (bit 3)
+    mov_abs(0o1234, 0o040000)                        # store through D-space map
+    program.append(0o000000)                         # HALT
+    cpu, board = make_machine("11/94", ram_words=0o200000, program=program, pc=0o100)
+    step_n(cpu, 15)
+    assert cpu.state.halted
+    assert board.mmu is not None and board.mmu.enabled
+    assert board.ram.read_word(0o200000) == 0o1234

@@ -38,17 +38,21 @@ python -m pdp11.main --machine 11/20 ...     # identical, module form
 All numeric CLI arguments that denote machine quantities are **octal**
 (spec §10.1), e.g. `--memory 0o20000`.
 
-### Current M5 behavior
+### Current M5/M6 behavior
 
 All four profiles assemble and run. On the **11/70** (`--machine 11/70`)
 the machine comes up with the KD11-Z: 22-bit physical memory, the MMU
 (off until MMR0 MME is set — boot code maps the kernel APRs first), the
 Unibus map, the RH70 Massbus controller at 176700 with an RP06/RP07 drive
-when `--disk rp06.dsk` is given, and the FP11. HALT drops to ODT, which on
-MMU machines prints the `^ address` display first (spec §13). Example:
+when `--disk rp06.dsk` is given, and the FP11. On the **11/94**
+(`--machine 11/94`) the J-11 (DCJ-11) brings on-chip CIS string instructions
+and the FPJ (FP11-compatible), an MMU with I/D split via MMR0 bit 3, and the
+Q22-CD 22-bit Q-Bus map at 0o170400. HALT drops to ODT, which on MMU
+machines prints the `^ address` display first (spec §13). Examples:
 
 ```sh
 eleven13 --machine 11/70 --disk rp06.dsk
+eleven13 --machine 11/94 --disk rt11.rx01
 ```
 
 ## 3. Running a machine and the console

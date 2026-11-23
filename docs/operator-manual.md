@@ -15,7 +15,7 @@ distinct from the HALT state. Assembled by the profile, never hard-coded.
 | **11/03** | KD11-F starts at octal **173000** (boot ROM). Console ODT is reachable with the BREAK key / halt switch. |
 | **11/20** | **No ROM at all**: starts at octal **000000** in whatever RAM the operator toggles in via the console switches (in the emulator: manual deposit via ODT, or auto-load from a script file). See §3 below for the original bin-load ritual. |
 | **11/70** | Microcode-loads from the boot ROMs (M9312 secondary ROM at octal 173000; console ROM at 165xxx per the 11/70 handbook). M5: the emulator boots the built-in (non-authentic) bootstrap at 173000, reproduces the `^ address` display on halt — ODT prints `^` + PC before the `@` prompt on MMU machines — and models the MMU (off at power-on until MMR0 MME is set, as on real hardware). |
-| **11/94** | Console microcode boot from the 2 KB boot PROM at octal **173000**, with the extended 4-slot state save (spec §5.4/§5.5). |
+| **11/94** | Console microcode boot from the 2 KB boot PROM at octal **173000**, with the extended 4-slot state save (spec §5.4/§5.5). M6: J-11 (DCJ-11) with on-chip CIS+FPJ, MMU with I/D via MMR0 bit 3, Q22-CD 22-bit map at 0o170400; the built-in bootstrap boots and ODT shows `^ address`. (Real 11/94 hardware is Unibus — the spec's Q22-CD assignment is followed and flagged §22.1.) |
 
 `--bootrom <file>` supplies a **512-word M9312 boot PROM image** so any of the
 four profiles can run real DEC 173000-series boot code (XXDP boot, TU tape

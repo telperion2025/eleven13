@@ -116,6 +116,29 @@ exception is set and ID is clear; FEC/FEA record code/address (STST).
 | 1754dd / 1760dd | STCfi / STCff′ | AC → integer / other precision |
 | 1770dd / 1774dd | LDCif / LDCff′ | integer / other precision → AC |
 
+## CIS — Commercial Instruction Set (0o076xxx, caps=CIS: 11/94 on-chip J-11, 11/03+KEF11, 11/70+KH11; reserved 000010 elsewhere)
+
+op = IR<6:0>; bit 6 (0o100) selects inline operands (descriptor ADDRESSES as
+inline words fetched from I space). String descriptor = (length word, address
+word). Register forms use R0:R1/R2:R3 as descriptors, R4 = fill/match char,
+R5 = table address. M6 implements the string ops per SIMH pdp11_cis.c;
+packed-decimal ops (0o050-0o057, 0o070-0o077, inline 0o150-0o177) raise
+NotImplementedError (§22.4).
+
+| Octal | Mnemonic | Operation |
+|---|---|---|
+| 0760[2-7]r | L2DR | load 2 descriptors into R0-R3 from list at Rr |
+| 0761[2-7]r | L3DR | load 3 descriptors into R0-R5 |
+| 076030 / 076130 | MOVC / MOVCI | move string, pad dst with fill; CC from srclen−dstlen |
+| 076031 / 076131 | MOVRC / MOVRCI | move reversed to END of dst, fill front |
+| 076032 / 076132 | MOVTC / MOVTCI | MOVC + translate each byte via table at R5 |
+| 076040 / 076140 | LOCC / LOCCI | find char: R0:R1 <- unmatched rest (incl. match) |
+| 076041 / 076141 | SKPC / SKPCI | skip char (first non-match) |
+| 076042 / 076142 | SCANC / SCANCI | scan until table[c] & mask ≠ 0 |
+| 076043 / 076143 | SPANC / SPANCI | span while table[c] & mask ≠ 0 |
+| 076044 / 076144 | CMPC / CMPCI | compare two strings (fill-padded); NZVC from first diff, Z if equal |
+| 076045 / 076145 | MATC / MATCI | count chars matching mask table |
+
 ## Standard vectors (spec §5.5)
 
 | Octal | Meaning |

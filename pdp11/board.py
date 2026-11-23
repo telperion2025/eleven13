@@ -56,7 +56,12 @@ from pdp11.cpu.mmu import (
 )
 from pdp11.cpu.registers import PSW, Reg
 from pdp11.memory.io_page import IOPPage
-from pdp11.memory.map_registers import MAP_WINDOW_BASE, UnibusMap
+from pdp11.memory.map_registers import (
+    MAP_WINDOW_BASE,
+    Q22_MAP_WINDOW_BASE,
+    Q22Map,
+    UnibusMap,
+)
 from pdp11.memory.ram import RAM
 from pdp11.memory.rom import ROM
 from pdp11.system_clock import SystemClock
@@ -135,9 +140,11 @@ class _DMAFace:
 
     def _pa(self, addr: int) -> int:
         b = self._board
-        if self._use_map and b.map is not None and b.mmu is not None \
-                and (b.mmu.mmr3 & MMR3_BME):
-            return b.map.translate(addr & 0o777777)
+        if self._use_map and b.map is not None:
+            if isinstance(b.map, Q22Map):
+                return b.map.translate(addr)      # Q22-CD map: always in use (M6)
+            if b.mmu is not None and (b.mmu.mmr3 & MMR3_BME):
+                return b.map.translate(addr & 0o777777)
         return addr & b._addr_mask
 
     def read_word(self, addr: int) -> int:
@@ -197,15 +204,25 @@ class SystemBoard:
         self.cycles_used = 0                   # bus transfers this instruction (§5.6)
         # M5: MMU + Unibus map on has_mmu profiles; register windows attach
         # into the I/O page (addresses in cpu/mmu.py docstring).
-        self.mmu: MMU | None = MMU() if profile.has_mmu else None
-        self.map: UnibusMap | None = UnibusMap() if profile.has_mmu else None
+        # M6: on the 22-bit Q-Bus profile (11/94) the Q22-CD map replaces the
+        # Unibus map, and the J-11 selects I/D via MMR0 <3> (dspace_mmr0).
+        self.mmu: MMU | None = (
+            MMU(dspace_mmr0=profile.bus is BusType.QBUS) if profile.has_mmu else None)
+        self.map: UnibusMap | Q22Map | None = None
+        if profile.has_mmu:
+            if profile.bus is BusType.UNIBUS:
+                self.map = UnibusMap()
+            elif bits > 18:
+                self.map = Q22Map()
         if self.mmu is not None:
             self.io_page.attach(MMR012_BASE, MMR012Window(self.mmu))
             self.io_page.attach(MMR3_BASE, MMR3Window(self.mmu))
             for base, space, mode, is_par in APR_BLOCKS:
                 self.io_page.attach(base, APRWindow(self.mmu, space, mode, is_par, base))
-            if self.map is not None and profile.bus is BusType.UNIBUS:
+            if isinstance(self.map, UnibusMap):
                 self.io_page.attach(MAP_WINDOW_BASE, self.map)
+            elif isinstance(self.map, Q22Map):
+                self.io_page.attach(Q22_MAP_WINDOW_BASE, self.map)
         # DMA faces for devices (§6.1): Unibus/Q-Bus NPR (map applied) and
         # Massbus (direct 22-bit physical).
         self.dma_host = _DMAFace(self, use_map=True)
@@ -267,7 +284,13 @@ class SystemBoard:
             # nonexistent memory on the LSI-11 depends on backplane config
             # (§5.5); v1 models a clean Q-Bus timeout — flagged §22.1
             raise BusInit(f"Q-Bus timeout (nonexistent memory) at octal {oct(addr)}")
-        raise NotImplementedError(f"§5.5 bus_error_model {model.name} — M6 (11/94)")
+        if model is BusErrorModel.DCJ11_STRICT:
+            # J-11 (11/94, M6): strict timeout on nonexistent memory AND on
+            # odd-address word access (no byte-split quirk); the micro-trap
+            # format differences vs the 11/70 are flagged §22.4
+            kind = "odd-address word access" if is_word and addr & 1 else "nonexistent memory"
+            raise BusInit(f"J-11 bus timeout ({kind}) at octal {oct(addr)}")
+        raise NotImplementedError(f"§5.5 bus_error_model {model.name}")
 
     def _route_read_word(self, pa: int) -> int:
         """Read a 16-bit word at physical address `pa` (no cycle count — the

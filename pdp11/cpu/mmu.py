@@ -68,6 +68,8 @@ SPACE_D = 1
 
 # -- MMR0 bits ------------------------------------------------------------------
 MMR0_MME = 0o000001      # <0>  memory management enable
+MMR0_DSE = 0o000010      # <3>  D-space enable (J-11/11/94 convention, §5.7:
+                         # the 11/70 instead uses MMR3 UDS/SDS/KDS — §22.4)
 MMR0_PAGE = 0o000176     # <6:1> page number of the aborting access
 MMR0_IC = 0o000200       # <8>  instruction complete
 MMR0_MAINT = 0o000400    # <9>  maintenance
@@ -195,9 +197,14 @@ class PAR:
 
 class MMU:
     """The 11/70/94 memory management unit: 6 APR sets (I/D x 3 modes x 8
-    pages), MMR0-3, and virtual->physical translation with aborts."""
+    pages), MMR0-3, and virtual->physical translation with aborts.
 
-    def __init__(self) -> None:
+    `dspace_mmr0` selects the J-11 (11/94) I/D convention — D-space enabled
+    globally by MMR0 <3> — instead of the 11/70's per-mode MMR3 bits (§5.7,
+    profile-selected per §19.1)."""
+
+    def __init__(self, dspace_mmr0: bool = False) -> None:
+        self._dspace_mmr0 = dspace_mmr0
         # par[space][mode][page] / pdr[space][mode][page]; mode indexed 0..3
         # (mode 2 unused — PSW encoding 0/1/3)
         self.par: list[list[list[int]]] = [
@@ -216,7 +223,10 @@ class MMU:
         return bool(self.mmr0 & MMR0_MME)
 
     def dspace_enabled(self, mode: int) -> bool:
-        """MMR3 per-mode D-space enable (UDS/SDS/KDS) — 11/70 split I/D."""
+        """D-space enable: J-11 = MMR0 <3> DSE globally; 11/70 = MMR3
+        per-mode UDS/SDS/KDS bits (§5.7, §22.4)."""
+        if self._dspace_mmr0:
+            return bool(self.mmr0 & MMR0_DSE)
         bit = {MD_KER: MMR3_KDS, MD_SUP: MMR3_SDS, MD_USR: MMR3_UDS}.get(mode, 0)
         return bool(self.mmr3 & bit)
 
@@ -331,7 +341,9 @@ class MMR012Window(_MMUBase):
         reg = offset & 0o177776
         v = value & 0o177777
         if reg == 0:
-            m.mmr0 = (m.mmr0 & ~MMR0_WR & 0o177777) | (v & MMR0_WR)
+            # J-11 flavor: MMR0 <3> DSE is writable too (§5.7, §22.4)
+            wr = MMR0_WR | (MMR0_DSE if m._dspace_mmr0 else 0)
+            m.mmr0 = (m.mmr0 & ~wr & 0o177777) | (v & wr)
         elif reg == 2:
             m.mmr1 = v
         else:
