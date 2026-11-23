@@ -1,15 +1,15 @@
-# PDP-11 Instruction Reference — M1 implemented set
+# PDP-11 Instruction Reference — M1–M5 implemented set
 
-What milestone M1 implements: the **BASE** set of the PDP-11/20 (KD11-B) —
-everything present on every PDP-11, including the original 11/20 — on flat
-16-bit memory. Opcodes and flag behavior per the *PDP-11 Processor Handbook*
+M1 implements the **BASE** set of the PDP-11/20 (KD11-B); M3 adds EIS;
+M5 adds the **MMU-only** instructions and the **FP11** group on the
+11/70/94. Opcodes and flag behavior per the *PDP-11 Processor Handbook*
 (instruction set reference; timing table for the `COSTS` entries in
 `cpu/core.py`). All values octal (spec §10.1).
 
 Not on the 11/20 (spec §2): MUL, DIV, ASH, ASHC, XOR, SOB, MARK, SXT,
 MTPS/MFPS, SPL — these opcodes are **consumed as no-ops** on the 11/20
-(capability gate, spec §5.4) and are stubs (`NotImplementedError`) on
-capable machines until M4–M6. FP11 (0o17xxxx) and CIS trap as reserved on
+(capability gate, spec §5.4); on MMU machines (11/70/94) MARK/MTPS/MFPS/SPL
+are real (see §"MMU-only" below). FP11 (0o17xxxx) and CIS trap as reserved on
 machines without the FPU/CIS (spec §5.8).
 
 ## Double-operand (bits 15-12 opcode; byte form = bit 15 set)
@@ -79,6 +79,43 @@ machines without the FPU/CIS (spec §5.8).
 | 000241–000257 | CLC/CLV/CLZ/CLN/CCC | clear C/V/Z/N/all (bits 3-0 select) |
 | 000261–000277 | SEC/SEV/SEZ/SEN/SCC | set C/V/Z/N/all |
 
+## MMU-only instructions (11/70, 11/94 — no-ops on the 11/20, spec §5.4/§5.7)
+
+| Octal | Mnemonic | Operation |
+|---|---|---|
+| 00023m | SPL m | PSW<7:5> (IPL) ← m |
+| 0064nn | MARK nn | SP ← PC+2·nn; PC ← R5; R5 ← (SP)+ |
+| 1064dd | MTPS dd | PSW<7:0> ← src byte (IPL/T/CC only) |
+| 1067dd | MFPS dd | dst byte ← PSW<7:0> |
+| 0065dd | MFPI dd | dst ← previous mode's **I** space at dd |
+| 0066dd | MTPI dd | previous mode's **I** space at dd ← src |
+| 1065dd | MTPD dd | previous mode's **D** space at dd ← src |
+| 1066dd | MFPD dd | dst ← previous mode's **D** space at dd |
+
+On MMU machines, trap/interrupt vectors are fetched from **kernel D space**,
+the previous-mode field records the old mode, and R6 is banked per mode
+(`switch_mode`); RTI switches mode after popping PSW and PC.
+
+## FP11 floating-point group (0o17xxxx, 11/70/94 with FP11; reserved 000010 elsewhere)
+
+Decode: fop = IR<11:8>, accumulator ac = IR<7:6>, operand spec = IR<5:0>.
+F (FPS D=0) is 32-bit, D (FPS D=1) is 64-bit; both use an 8-bit excess-128
+exponent. FP operand specifiers are length-aware (F=4 bytes, D=8; PC
+immediates advance PC by one word); mode 6/7 displacements are fetched from
+I space. Exceptions trap through **000244** when the FPS IE bit for the
+exception is set and ID is clear; FEC/FEA record code/address (STST).
+
+| Octal | Mnemonic | Operation |
+|---|---|---|
+| 170000 / 170001 / 170002 / 170011 / 170012 | CFCC / SETF / SETI / SETD / SETL | FPS↔PSW cc; set F/I/D/L modes |
+| 1701dd / 1702dd / 1703dd | LDFPS / STFPS / STST | FPS ↔ operand; (FEC,FEA) long ↔ operand |
+| 1704dd / 1705dd / 1706dd / 1707dd | CLRf / TSTf / ABSf / NEGf | per-precision clear/test/abs/negate |
+| 1710as / 1714as / 172ass / 173ass / 1734as | MULf / MODf / ADDF / SUBF / CMPf | ac op= src (MOD: rem→AC, quot→AC+1) |
+| 1724as / 174ass / 1744as | LDF / STf / DIVf | load / store / divide |
+| 1750dd / 1764dd | STEXP / LDEXP | exponent ↔ integer operand |
+| 1754dd / 1760dd | STCfi / STCff′ | AC → integer / other precision |
+| 1770dd / 1774dd | LDCif / LDCff′ | integer / other precision → AC |
+
 ## Standard vectors (spec §5.5)
 
 | Octal | Meaning |
@@ -90,6 +127,8 @@ machines without the FPU/CIS (spec §5.8).
 | 000024 | power fail / power restore |
 | 000030 | EMT |
 | 000034 | TRAP |
+| 000244 | floating-point exception (FP11, M5) |
+| 000250 | MMU abort with MMR0 TENB set (M5; else 000004) |
 
 ## Address modes (spec §5.2; all covered by golden tests)
 

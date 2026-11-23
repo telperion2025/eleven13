@@ -14,7 +14,7 @@ distinct from the HALT state. Assembled by the profile, never hard-coded.
 |---|---|
 | **11/03** | KD11-F starts at octal **173000** (boot ROM). Console ODT is reachable with the BREAK key / halt switch. |
 | **11/20** | **No ROM at all**: starts at octal **000000** in whatever RAM the operator toggles in via the console switches (in the emulator: manual deposit via ODT, or auto-load from a script file). See §3 below for the original bin-load ritual. |
-| **11/70** | Microcode-loads from the boot ROMs (M9312 secondary ROM at octal 173000; console ROM at 165xxx per the 11/70 handbook). The emulator reproduces the ROM-search order and the `^` address display. |
+| **11/70** | Microcode-loads from the boot ROMs (M9312 secondary ROM at octal 173000; console ROM at 165xxx per the 11/70 handbook). M5: the emulator boots the built-in (non-authentic) bootstrap at 173000, reproduces the `^ address` display on halt — ODT prints `^` + PC before the `@` prompt on MMU machines — and models the MMU (off at power-on until MMR0 MME is set, as on real hardware). |
 | **11/94** | Console microcode boot from the 2 KB boot PROM at octal **173000**, with the extended 4-slot state save (spec §5.4/§5.5). |
 
 `--bootrom <file>` supplies a **512-word M9312 boot PROM image** so any of the
@@ -35,7 +35,9 @@ mid-cycle or corrupting machine state (spec §13):
 
 On HALT, control falls to **ODT** — the `@` prompt behaving like the real
 M9312/KD11-F console: `/` examine, `\` deposit, `G` go, octal addresses only
-(spec §9).
+(spec §9). On the 11/70/94 the console first shows the `^ address` display
+(the halted PC), matching the 11/70 front-panel behavior (§13) —
+`pdp11/control/front_panel.py` emits `^nnnnnn` when `profile.has_mmu`.
 
 ## 3. The 11/20 bin-load ritual (operator's writeup, spec §13)
 
@@ -64,7 +66,7 @@ images for the ROM-boot machines.
 |---|---|---|
 | 11/03 | RT-11 | RX01 image (§11.2) |
 | 11/20 | RT-11 | RK05 image (§11.3) |
-| 11/70 | RSTS/E or RSX-11M | RP06 via RH70/Massbus, MMU on across kernel/supervisor/user (§11.4) |
+| 11/70 | RSTS/E or RSX-11M | RP06 via RH70/Massbus at 176700 (M5 driver done: `--disk rp06.dsk`), MMU across kernel/supervisor/user (§11.4); a real RSTS/RSX RP06 image awaits the operator (§22.1) |
 | 11/94 | RT-11 | RX01 image (§11.2) |
 
 Disk/tape images are read from the SIMH-compatible containers of spec §16

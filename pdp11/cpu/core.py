@@ -23,6 +23,7 @@ from typing import NamedTuple, Protocol
 from pdp11.bus.abstract_bus import BusDevice, BusInit
 from pdp11.config.profiles import CpuCap, MachineProfile
 from pdp11.cpu import interrupts, traps
+from pdp11.cpu.mmu import MMUAbort
 from pdp11.cpu.registers import PSW, CPUState, Reg
 from pdp11.errors import EmulationError
 from pdp11.system_clock import SystemClock
@@ -58,15 +59,20 @@ COSTS: dict[int, int] = {
 
 class MemoryInterface(Protocol):
     """The single memory/I/O face the CPU talks to (§4.2). Flat 16-bit mode
-    in M1 (SystemBoard); MMU-mapped 22-bit mode is selected here in M5/M6."""
+    in M1 (SystemBoard); MMU-mapped 22-bit mode is selected here in M5/M6.
+    On MMU machines addresses are 16-bit virtual: `fetch=True` selects
+    I-space (instruction fetches never touch the D-space map, §5.7) and
+    `mode` overrides the PSW current mode (MFPI/MTPI previous-space)."""
 
     cycles_used: int  # bus transfers since begin_instruction() — the operand cost
 
     def begin_instruction(self) -> None: ...
-    def read_word(self, addr: int) -> int: ...
-    def write_word(self, addr: int, value: int) -> None: ...
-    def read_byte(self, addr: int) -> int: ...
-    def write_byte(self, addr: int, value: int) -> None: ...
+    def read_word(self, addr: int, *, fetch: bool = False, mode: int | None = None) -> int: ...
+    def write_word(self, addr: int, value: int, *, fetch: bool = False,
+                   mode: int | None = None) -> None: ...
+    def read_byte(self, addr: int, *, fetch: bool = False, mode: int | None = None) -> int: ...
+    def write_byte(self, addr: int, value: int, *, fetch: bool = False,
+                   mode: int | None = None) -> None: ...
     def poll_interrupt(self) -> tuple[int, int] | None:
         """Bus arbitration result (vector, ipl) or None — the CPU asks the
         BUS, never the devices directly (§6.1)."""
@@ -126,7 +132,8 @@ def resolve_operand(state: CPUState, bus: MemoryInterface, operand_halfword: int
     """
     mode = (operand_halfword & DEC_ADDR_MODE) >> 3   # mode 0-7
     reg = operand_halfword & DEC_REG_NUM              # register 0-7
-    _ = is_source  # flat mode: source/data fetches are identical (I/D split is M5)
+    _ = is_source  # data fetches use D-space on split-I/D machines; the operand
+    # pointer reads below are data reads, the displacement fetch is I-space (§5.7)
     if mode == 0:
         return -1                                     # operand is in Rn itself
     if mode == 1:                                     # (Rn) register-deferred
@@ -151,8 +158,9 @@ def resolve_operand(state: CPUState, bus: MemoryInterface, operand_halfword: int
         state.R[reg] = addr
         return bus.read_word(addr)
     # mode 6/7: X(Rn) index — the displacement word is fetched with (PC)+
+    # from I space (it is part of the instruction stream, §5.7)
     pc = state.R[Reg.PC]
-    index = bus.read_word(pc)
+    index = bus.read_word(pc, fetch=True)
     state.R[Reg.PC] = (pc + 2) & WORD_MASK
     if index & SIGN_BIT:                              # displacement is a SIGNED word
         index -= 0o200000
@@ -200,10 +208,11 @@ class CPU:
         import pdp11.cpu.instructions  # noqa: F401 — importing registers every handler
         self.profile = profile
         self.clock = clock                  # deterministic scheduler (§5.6)
-        self.state = CPUState()
+        self.state = CPUState(banked=profile.has_mmu)   # per-mode SP on 11/70/94 (§5.1)
         self.bus: MemoryInterface | None = None   # injected by the board (§4.2)
         self.devices: list[BusDevice] = []           # injected: bus-ordered device list
         self.last_op_word: int = 0                   # opcode of the current/last instruction
+        self.last_instr_addr: int = 0                # its address (FP-exception FEA, §5.8)
         # dispatch buckets: opcode nibble -> masked entries, most specific first
         buckets: dict[int, list[OpEntry]] = {}
         for entry in _REGISTRY:
@@ -254,6 +263,7 @@ class CPU:
             cost = 1 + bus.cycles_used
         else:
             instr_addr = st.R[Reg.PC]
+            self.last_instr_addr = instr_addr
             op_word = 0
             trapped = False
             try:
@@ -271,10 +281,14 @@ class CPU:
                     trapped = True
                 else:
                     entry.fn(self)
-            except BusInit:
-                # bus timeout (§5.5): the machine layer catches the hardware
-                # signal here and routes it to vector 000004
-                traps.bus_error(self, instr_addr)
+            except BusInit as exc:
+                # bus timeout / MMU page fault (§5.5): the machine layer catches
+                # the hardware signal here. MMUAbort carries its own vector
+                # (000250 when MMR0 TENB is set, else 000004 — cpu/mmu.py).
+                if isinstance(exc, MMUAbort) and exc.vector != 0o000004:
+                    traps.trap(self, exc.vector, instr_addr)
+                else:
+                    traps.bus_error(self, instr_addr)
                 trapped = True
             if not trapped and not st.halted and st.psw.get(PSW.T):
                 traps.trap(self, traps.VECTOR_TRACE)   # T-bit: trace after instruction
@@ -319,13 +333,14 @@ class CPU:
     def fetch_word(self) -> int:
         """
         Read one instruction word and advance PC. On real hardware this is
-        a normal read at (PC)+ auto-increment — a critical §10.4 quirk:
-        guard-mode/cached fetch differs from data fetch once the MMU splits
-        I/D space (M5); this method is the single place to change then.
+        a normal read at (PC)+ auto-increment; with split I/D space (M5,
+        §5.7) instruction fetches go through the I-space map — `fetch=True`
+        is the single flag the board keys on, and this method is the single
+        place that sets it.
         """
         st = self.state
         if self.bus is None:
             raise EmulationError("CPU has no bus: the board must inject MemoryInterface")
         addr = st.R[Reg.PC]
         st.R[Reg.PC] = (addr + 2) & WORD_MASK   # PC increments by 2 (word), 16-bit wrap
-        return self.bus.read_word(addr)
+        return self.bus.read_word(addr, fetch=True)

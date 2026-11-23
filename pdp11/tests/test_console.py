@@ -282,3 +282,74 @@ def test_rx01_boot_sector_end_to_end(tmp_path):
     assert cpu.state.halted, "program did not reach HALT"
     got = bytes(board.ram.read_byte(0o4000 + i) for i in range(SECTOR_BYTES))
     assert got == sector                              # track 0 sector 1 landed in RAM
+
+
+# -- M5: 11/70 assembly, Massbus (RH70+RP06), MMU boot path (spec §12) ------------
+
+
+def test_assemble_1170_devices():
+    """11/70: Unibus arbiter + MMU + Unibus map; DL11/KW11L/RH70 attach in
+    profile order (tm11 is not implemented until its milestone and is
+    skipped with a log note)."""
+    args = build_arg_parser().parse_args(["--machine", "11/70"])
+    board = assemble(args, ConsoleTerminal(FakeBackend()))
+    assert board.unibus is not None and board.qbus is None
+    assert board.mmu is not None and board.map is not None
+    assert [d.name for d in board.devices] == ["DL11", "KW11L", "RH70"]
+
+
+def test_assemble_1170_rp06_disk(tmp_path):
+    """--disk with an RP06-sized container attaches an RP06 drive to the RH70
+    at 176700 (§16 dispatch)."""
+    from pdp11.disk_images.container import RP06_CYLINDERS, open_rp06
+    img = str(tmp_path / "rp06.dsk")
+    open_rp06(img).flush()
+    args = build_arg_parser().parse_args(["--machine", "11/70", "--disk", img])
+    board = assemble(args, ConsoleTerminal(FakeBackend()))
+    rh = next(d for d in board.devices if d.name == "RH70")
+    assert rh.drive.cylinders == RP06_CYLINDERS      # type: ignore[attr-defined]
+
+
+def test_1170_builtin_bootstrap_and_caret_odt():
+    """11/70 power-on (§13): the built-in bootstrap at 173000 prints the
+    banner through the console DL11 and HALTs into ODT, which shows the
+    `^ address` display on MMU machines."""
+    board, backend = make_board("11/70", input_bytes=b"Q\n")
+    assert board.rom is not None and board.rom_base == BOOT_BASE
+    rc = run(board, ConsoleTerminal(backend))
+    assert rc == 0
+    assert "non-authentic" in backend.text()
+    assert "^" in backend.text()
+
+
+def test_1170_mmu_on_program_path():
+    """Hand-assembled 11/70 program: map the kernel APRs, enable the MMU
+    (MMR0 MME|TENB), then store through the mapping — the word must land at
+    the physical page from KDPAR2, proving translation is active (§5.7)."""
+    from pdp11.tests.cpu_golden import make_machine, step_n
+    program: list[int] = []
+
+    def mov_abs(value: int, addr: int) -> None:      # MOV #value,@#addr
+        program.extend([0o012737, value, addr])
+
+    mov_abs(0, 0o172340)                             # KIPAR0 = 0 (identity)
+    mov_abs(0o077406, 0o172300)                      # KIPDR0: RW full page
+    mov_abs(0o2000, 0o172344)                        # KIPAR2 -> PA 0o200000
+    mov_abs(0o077406, 0o172304)                      # KIPDR2
+    mov_abs(0o177600, 0o172356)                      # KIPAR7 -> I/O page
+    mov_abs(0o077406, 0o172316)                      # KIPDR7
+    mov_abs(0, 0o172360)                             # KDPAR0
+    mov_abs(0o077406, 0o172320)                      # KDPDR0
+    mov_abs(0o2000, 0o172364)                        # KDPAR2 -> PA 0o200000
+    mov_abs(0o077406, 0o172324)                      # KDPDR2
+    mov_abs(0o177600, 0o172376)                      # KDPAR7
+    mov_abs(0o077406, 0o172336)                      # KDPDR7
+    mov_abs(0o5, 0o172516)                           # MMR3: UDS|KDS
+    mov_abs(0o1001, 0o177572)                        # MMR0: MME|TENB
+    mov_abs(0o1234, 0o040000)                        # store through the map (page 2)
+    program.append(0o000000)                         # HALT
+    cpu, board = make_machine("11/70", ram_words=0o200000, program=program, pc=0o100)
+    step_n(cpu, 20)
+    assert cpu.state.halted
+    assert board.mmu is not None and board.mmu.enabled
+    assert board.ram.read_word(0o200000) == 0o1234

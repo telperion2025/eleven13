@@ -12,6 +12,8 @@ from __future__ import annotations
 from array import array
 from enum import IntEnum
 
+from pdp11.cpu.fp11 import FP11
+
 
 class Reg(IntEnum):
     """Register indices; R6=SP and R7=PC per the PDP-11 Processor Handbook."""
@@ -49,8 +51,9 @@ class PSW:
     C = 0o000001
     T = 0o000020
     IPL_MASK = 0o000340  # bits 7..5
+    RS = 0o004000        # bit 11: register set (11/70+ only; stored, §5.1)
     Curr_MODE = 0o140000  # bits 15..14
-    Prev_MODE = 0o060000  # bits 13..12
+    Prev_MODE = 0o030000  # bits 13..12
 
     def __init__(self) -> None:
         self._value: int = 0         # raw 16-bit storage, one word, like real HW
@@ -86,11 +89,30 @@ class PSW:
 class CPUState:
     """Complete architectural state — the exact contents of a snapshot
     (excluding caches/per-quantum scratch). One field, one hardware
-    register; nothing else gets to hide in here (§15 requirement)."""
+    register; nothing else gets to hide in here (§15 requirement).
 
-    def __init__(self) -> None:
+    On MMU machines (11/70, 11/94) R6 is banked per mode: `sps` holds the
+    kernel/supervisor/user stack pointers and `switch_mode` swaps R6 when
+    the PSW current-mode bits change (§5.1 "separate SP per mode")."""
+
+    def __init__(self, banked: bool = False) -> None:
         # 8 general registers, 16-bit each (R0..R5, SP, PC)
         self.R: array[int] = array("H", [0] * 8)
         self.psw = PSW()
         self.halted: bool = False    # HALT reached: drop to ODT (§9)
         self.waiting: bool = False   # WAIT reached: park CPU until interrupt (§5.5)
+        self.banked = banked         # profile.has_mmu: per-mode SP banks active
+        self.sps: array[int] = array("H", [0] * 4)   # per-mode SP (index = mode)
+        self.fp = FP11()             # FP11 accumulators/FPS (§5.1; FPU machines only)
+
+    def switch_mode(self, new_cm: int, old_cm: int | None = None) -> None:
+        """Swap R6 with the SP bank of the new current mode (§5.1, 11/70/94).
+        No-op on non-banked (flat) machines."""
+        if not self.banked:
+            return
+        if old_cm is None:
+            old_cm = (self.psw.value & PSW.Curr_MODE) >> 14
+        if new_cm == old_cm:
+            return
+        self.sps[old_cm] = self.R[Reg.SP]
+        self.R[Reg.SP] = self.sps[new_cm]

@@ -104,7 +104,7 @@ PROFILES: dict[str, MachineProfile] = {
         key="11/70", cpu_name="KD11-Z",
         caps=frozenset({CpuCap.BASE, CpuCap.EIS, CpuCap.FPU, CpuCap.MMU}),
         bus=BusType.UNIBUS, has_mmu=True, has_fpu=True,   # FP11 assumed fitted
-        physical_bits=22, max_ram_words=0o4000000,       # 4 MB
+        physical_bits=22, max_ram_words=0o10000000,      # 4 MB = full 22-bit space (M5 fix)
         bus_error_model=BusErrorModel.UNIBUS_TIMEOUT,
         power_on_pc=0o173000,                             # M9312 boot ROM (§13)
         iopage_base=0o177600,
@@ -115,7 +115,7 @@ PROFILES: dict[str, MachineProfile] = {
         key="11/94", cpu_name="DCJ-11 (J-11)",
         caps=frozenset({CpuCap.BASE, CpuCap.EIS, CpuCap.CIS, CpuCap.FPU, CpuCap.MMU}),
         bus=BusType.QBUS, has_mmu=True, has_fpu=True,
-        physical_bits=22, max_ram_words=0o4000000,        # 4 MB; async Q22-CD mapping
+        physical_bits=22, max_ram_words=0o10000000,       # 4 MB; async Q22-CD mapping (M5 fix)
         bus_error_model=BusErrorModel.DCJ11_STRICT,
         power_on_pc=0o173000,
         iopage_base=0o177600,

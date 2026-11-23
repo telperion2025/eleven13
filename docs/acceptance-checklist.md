@@ -7,7 +7,7 @@ Version 1 is complete when all eleven criteria pass. Status after M3:
 | 1 | All four profiles assemble, enter ODT, run MAINDEC CPU diagnostics to a pass/fail report | profiles assemble, boot ROM path + ODT shell **done in M2** (`test_console.py`: 11/03 built-in bootstrap prints via DL11 and HALTs to ODT; 11/20 HALTs at 000000 into ODT); MAINDEC runs land M8 (`tests/machine_diagnostics.py`) |
 | 2 | RT-11 boots from an RX01 image on 11/03 and 11/94 | RX11 driver + RX01 container **done in M4**; the boot path (ready poll → READ via RXDB/TR handshake → BR5/264 interrupt → EMPTY 128 bytes to RAM) is verified end-to-end on the 11/03 (`test_console.py::test_rx01_boot_sector_end_to_end`). A *real* RT-11 RX01 image awaits the operator (§22.1); 11/94 profile lands M6 |
 | 3 | RT-11 boots from an RK05 image on 11/20 | RK11/RK05 driver + containers **done in M3**; the full boot path (I/O-page CSR writes → NPR word-at-a-time DMA → BR5/vector-220 completion interrupt) is verified end-to-end with a hand-built boot block (`test_console.py::test_rk05_boot_block_end_to_end`). Booting a *real* RT-11 image awaits an operator-supplied container (§22.1 — no image is fabricated) |
-| 4 | RSTS/E or RSX-11M boots on 11/70 from an RP06 (RH70/Massbus), MMU across kernel/supervisor/user | M5 |
+| 4 | RSTS/E or RSX-11M boots on 11/70 from an RP06 (RH70/Massbus), MMU across kernel/supervisor/user | **M5 done at the machine level**: 11/70 MMU (3-mode I/D APR sets, MMR0-3, aborts via 000250/000004), Unibus map (BME-gated DMA face), RH70+RP06/RP07 Massbus driver, FP11 — `test_mmu.py`, `test_map.py`, `test_fp11.py`, `test_rh70.py`, `test_console.py` (11/70 assembly, RP06 `--disk`, bootstrap + `^` ODT display, MMU-on program path). Booting a *real* RSTS/RSX image awaits an operator-supplied RP06 container (§22.1 — no image is fabricated) |
 | 5 | 11/20 no-ops microcoded-only instructions rather than executing them | **done at CPU level** — `test_1120_noops_microcoded_only_opcodes` + `test_eis_raises_notimplemented_on_eis_fitted_machine` (capability gate, spec §5.4); MAINDEC CK41 cross-check per §22.5 R1 |
 | 6 | Console DL11 traffic end-to-end with the VT100 frontend on all profiles | DL11 console + run loop **done in M2** (`device_unit.py`, `test_console.py`); VT100 state machine M7 |
 | 7 | Timing tests: KW11-L ticks, Q-Bus DMA, Unibus NPR priority interact causally (not wall clock) | scheduler core **done** (`test_clock_is_deterministic_across_replays`, `test_clock_events_drain_during_run`); Unibus NPR/BR arbitration **done in M2** (`test_unibus.py`); KW11-L 16 667-cycle tick + vector 000104/BR6 and RK11 seek/transfer scheduling **done in M3** (`device_unit.py`: `test_kw11l_*`, `test_rk11_seek_*`, `test_rk11_read_sector_via_npr_cycle_stealing`); Q-Bus DMA M4 |
@@ -91,3 +91,62 @@ Version 1 is complete when all eleven criteria pass. Status after M3:
     split byte pair; nonexistent memory → clean Q-Bus timeout (vector
     000004). The spec's "depends on backplane configuration" variants are
     NOT settled by the spec text — flagged §22.1 for Andrew/SIMH.
+
+### M5 reconciliations (§12 milestone 5: 11/70 MMU, Unibus map, Massbus, FP11)
+
+13. `profiles.py` `max_ram_words` for 11/70 and 11/94 was 0o4000000; corrected
+    to 0o10000000 (4 MB = the full 22-bit space below the I/O page). RAM is
+    clipped at the top 8 KB I/O page for 22-bit profiles.
+14. The spec's "I/D space via MMR0 bit 3" (§5.7 text) is the **J-11 (11/94)
+    convention**; on the 11/70 split I/D is selected by **MMR3 bits 0-2
+    (UDS/SDS/KDS)** per the 11/70 Processor Handbook / SIMH pdp11_mmu.c —
+    flagged §22.4. The emulator follows the 11/70 hardware.
+15. The Unibus map register window lives at **0o172400** in the emulator's
+    16-bit-convention I/O page; the real 11/70 places it at Unibus 772200
+    (SIMH uses 770200, aliased in the supervisor APR space). Entries are
+    22-bit byte bases stored as two words (low 16 at +0, bits <21:16> at +2,
+    4-byte stride), 31 usable entries; page 31 is fixed at 0o17760000+.
+    Flagged §22.4 for the address discrepancy.
+16. MMU aborts: vector **000250 when MMR0 TENB (bit 10) is set, else 000004**
+    (SIMH VEC_MME behavior); MMR0 records NR/RO/PL + mode/space/page, MMR2
+    the faulting VA. **MMR1 register-change backout is not modeled** (§22.4);
+    ACF 4/5 ("watched" read-write) do not trap (§22.4). A/W bits in the PDR
+    are set by hardware on access (writes preserve them).
+17. The board exposes **two DMA faces**: `dma_host` (18-bit Unibus address,
+    through the Unibus map only when MMR3 BME is set) and `massbus_host`
+    (22-bit direct physical, `(BAE<<16)|BA`) — the RH70 does **not** use the
+    Unibus map. Each moved word costs one stolen cycle (§5.6).
+18. RH70/RP06 details cross-checked against SIMH pdp11_rh.c / pdp11_rp.c:
+    window 176700 size 0o54 (RHCS1/RHWC/RHBA/RHCS2/RHDB/RHBAE/RHCS3, drive
+    regs RPDS/RPDA/RPER1/RPDC/RPCC), CS1/CS2 bit layouts, function codes
+    (NOOP/SEEK/RECAL/RELEASE/OFFSET/GET_STATUS/PACK_ACK/WRITE/WRITE_CHECK/
+    READ/READ_HEADER), RPDA surface<9:5>/sector<4:0>, RP06 = 815 cyl × 19
+    surf × 22 sect × 512 B (340670 sectors), RP07 = 630×32×43 (866880),
+    vector 000254 at BR5. Flagged §22.4: the completion interrupt is
+    modeled level-based (DONE&IE plus a CSTB INTR flop approximation) since
+    the arbiter is polled, not INTA-driven; data-transfer GO while DONE
+    clear sets CS2 PGE; multi-sector transfers auto-increment RPDA per
+    sector; READ_HEADER completes without data; RP control function codes
+    follow SIMH, not a DEC table.
+19. FP11: decode per SIMH pdp11_fp.c (fop = IR<11:8>, ac = IR<7:6>,
+    spec = IR<5:0>); F = 24-bit significand in the top 32 bits of a 64-bit
+    accumulator word, D = 56-bit; exponent 8-bit excess-128 (bias 0o200) for
+    **both** precisions (PDP-11 D is not IEEE-754). Arithmetic is exact
+    (`fractions.Fraction`), rounded half-up at store unless FPS T
+    (truncate); overflow exp > 0o377, underflow exp < 1. Exceptions trap
+    through **000244** when the per-exception IE bit is set and FPS ID is
+    clear; FEC records the code, FEA the faulting instruction address.
+    Flagged §22.4: reserved-operand (FEC_OP), divide-by-zero and
+    undefined-variable abort (NOP) the operation per the FP11; LDEXP range
+    checks follow SIMH; FP immediates via PC mode 2 advance PC by one word
+    only; in memory an FP operand is stored low-word-first per 32-bit unit.
+    On FPU-less profiles the whole 0o17xxxx group traps reserved (000010)
+    via the capability gate (§5.4/§5.8).
+20. MMU instructions on 11/70/94 (all no-ops on the 11/20 per §5.4):
+    SPL 00023m (set IPL), MARK 0064nn (SP ← PC+2·nn; PC ← R5; R5 ← (SP)+),
+    MTPS/MFPS 1064dd/1067dd (byte PSW), MFPI/MTPI/MFPD/MTPD
+    (0065dd/0066dd/1065dd/1066dd — move between current and previous mode's
+    I/D space; vector fetches and trap pushes on MMU machines use kernel D
+    space and the banked per-mode SP). RTI restores the mode via
+    `switch_mode` after both pops. **Register-set (RS bit 11) banking of
+    R0-R5 is stored but not switched** (§22.4).

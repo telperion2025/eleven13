@@ -78,7 +78,11 @@ class ODT:
             self.terminal.write(ord(ch))
 
     def run(self) -> str:
-        """ODT command loop until G (returns "go") or Q (returns "quit")."""
+        """ODT command loop until G (returns "go") or Q (returns "quit").
+        On MMU machines (11/70, 11/94) the halt display shows the address
+        with a caret first — the 11/70 console's `^ address` display (§13)."""
+        if self.board.profile.has_mmu:
+            self._emit(f"^{self.board.cpu.state.R[Reg.PC]:06o}\r\n")
         while True:
             self._emit(PROMPT)
             line = self._readline()

@@ -96,7 +96,46 @@ Logging: stdlib `logging` rooted at `"pdp11"`; INFO carries configuration and
 boot milestones only, DEBUG carries device register access behind per-device
 gates, custom TRACE (level 5) the fetch/decode path (spec §18.3).
 
-## 6. Module map
+## 6. M5: 11/70 MMU, Unibus map, Massbus, FP11 (spec §5.7/§5.8/§6/§7)
+
+- **MMU** (`pdp11/cpu/mmu.py`): 6 APR sets (I/D × kernel/supervisor/user × 8
+  pages) plus MMR0-3 as I/O-page windows (APR blocks at 172200-177660,
+  MMR0-2 at 177572, MMR3 at 172516). `MMU.translate(va, mode, …)` picks the
+  space (fetches always I; data uses D when MMR3's UDS/SDS/KDS bit for the
+  mode is set), checks ACF (0/3/7 no-access, 1/2 read-only, 4-6 RW), the page
+  length field (expand-up/down), sets the A/W bits, and returns
+  `PA = (PAR<<6)|VA<12:0>` masked to 22 bits. Aborts raise `MMUAbort` (a
+  `BusInit` subclass carrying the vector: 000250 with MMR0 TENB, else
+  000004) after recording NR/RO/PL + mode/space/page in MMR0 and the VA in
+  MMR2. With MMR0 MME clear everything is flat. `SystemBoard` routes CPU
+  accesses through `_va_to_pa`; on 22-bit machines the top 8 KB
+  (0o17760000+) is the I/O page with a flat alias at 0o160000-0o200000 for
+  MMU-off boot code.
+- **Unibus map** (`pdp11/memory/map_registers.py`): 32 22-bit entries,
+  window at 0o172400 (4-byte stride: low word, then bits <21:16>), page 31
+  fixed to the I/O page. Applied only on the `dma_host` DMA face and only
+  when MMR3 BME is set; `massbus_host` is direct 22-bit physical
+  (`(BAE<<16)|BA`) because the RH70 does not use the Unibus map.
+- **Modes**: `CPUState(banked=profile.has_mmu)` keeps a per-mode SP bank
+  (`sps[]`, `switch_mode`); trap/interrupt entry (`traps.enter_vector`)
+  fetches the vector from kernel D space, records the previous mode, and
+  pushes on the new mode's stack; RTI switches back after the pops. The PSW
+  window at 0o177776 drops the mode bits without an MMU (11/20).
+- **FP11** (`pdp11/cpu/fp11.py` + `cpu/instructions/fp11.py`): six 64-bit
+  accumulators (F in the top 32 bits), FPS/FEC/FEA, exact-Fraction
+  arithmetic rounded half-up at store (FPS T truncates), conversions
+  LDCif/STCfi/LDEXP/STEXP, and the full 0o17xxxx decode (fop = IR<11:8>).
+  Exceptions trap through 000244 when enabled; OP/DZRO/UNDFV NOP the
+  operation. FP operand EAs are length-aware (F=4, D=8 bytes) with the
+  mode 6/7 displacement fetched from I space.
+- **RH70/RP** (`pdp11/bus/massbus.py` constants, `pdp11/devices/rh70_rp.py`):
+  register window at 176700 (size 0o54), GO dispatch with the PGE rule,
+  seek via `SystemClock.schedule`, NPR word-at-a-time `tick()` through
+  `massbus_host`, completion interrupt at vector 000254/BR5 (level-based
+  approximation, §22.4), RP06/RP07 geometry (815×19×22, 630×32×43 sectors
+  of 512 B) over raw containers.
+
+## 7. Module map
 
 | Path | Role | M1 status |
 |---|---|---|
@@ -108,14 +147,14 @@ gates, custom TRACE (level 5) the fetch/decode path (spec §18.3).
 | `pdp11/cpu/registers.py` | R0–R7, PSW | done (§17.6) |
 | `pdp11/cpu/instructions/` | BASE handlers + gated EIS/FPU stubs | BASE done; EIS/FPU/CIS stubs |
 | `pdp11/cpu/traps.py`, `interrupts.py` | vectors, IPL logic | done (flat mode) |
-| `pdp11/cpu/mmu.py`, `cpu/fp11.py` | MMU, FP11 engine | stubs (M5/M6) |
-| `pdp11/memory/` | RAM, ROM, I/O page, map registers | RAM/ROM/IOPage done; maps stub |
-| `pdp11/bus/` | BusDevice ABC; Unibus/Q-Bus/Massbus | ABC + Unibus (M2) + Q-Bus BIAK/BDMG (M4) done; Massbus stub (M5) |
+| `pdp11/cpu/mmu.py`, `cpu/fp11.py` | MMU, FP11 engine | **done (M5)** — see §7 |
+| `pdp11/memory/` | RAM, ROM, I/O page, map registers | RAM/ROM/IOPage done; **Unibus map done (M5)** |
+| `pdp11/bus/` | BusDevice ABC; Unibus/Q-Bus/Massbus | ABC + Unibus (M2) + Q-Bus BIAK/BDMG (M4) + **Massbus constants done (M5)** |
 | `pdp11/devices/dl11.py` | console DL11 | done (M2); other devices stubbed to their milestones |
 | `pdp11/control/front_panel.py`, `rom_loader.py` | ODT + boot PROMs | done (M2); debugger/snapshot stubs (M7/M8) |
 | `pdp11/graphics/` | terminal interfaces | ConsoleTerminal + StdioBackend done (M2); VT100/curses M7 |
 | `pdp11/main.py` | CLI + assembly + run loop | done (M2) |
-| `pdp11/devices/` | DL11…KW11-P | DL11, KW11-L, RK11/RK05 (M2/M3), DZ11, RX11 (M4) done; rest stubbed to their milestones |
+| `pdp11/devices/` | DL11…KW11-P | DL11, KW11-L, RK11/RK05 (M2/M3), DZ11, RX11 (M4), **RH70+RP06/RP07 (M5)** done; rest stubbed to their milestones |
 | `pdp11/graphics/` | terminals + render backends | stubs (M7) |
 | `pdp11/disk_images/` | SIMH-compatible containers | RK05/RX01 raw containers done (M3); `.tap`/`.hp` + simh_compat M8 |
 | `pdp11/control/` | ODT, debugger, snapshots, ROM loader | stubs (M2/M7/M8) |

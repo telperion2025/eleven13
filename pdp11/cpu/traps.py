@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from pdp11.cpu.mmu import MD_KER
 from pdp11.cpu.registers import PSW, Reg
 from pdp11.errors import EmulationError
 
@@ -63,6 +64,37 @@ def pop_word(cpu: CPU) -> int:
     return value
 
 
+def enter_vector(cpu: CPU, vector: int, pc: int, psw: int) -> None:
+    """
+    Common trap/interrupt entry (§5.5): vector through `vector`, pushing the
+    old PC then PSW (RTI pops symmetrically).
+
+    On MMU machines (11/70/94) the vector is fetched from KERNEL D space
+    (§5.7), the previous-mode field records the old current mode, and the
+    old PC/PSW are pushed on the NEW mode's stack — R6 is banked per mode
+    (§5.1 "separate SP per mode"). On machines without modes the mode bits
+    in the loaded PSW are ignored (11/20: they read back 0 — PSW docstring).
+    """
+    st = cpu.state
+    bus = _bus(cpu)
+    if cpu.profile.has_mmu:
+        old_cm = (st.psw.value & PSW.Curr_MODE) >> 14
+        new_pc = bus.read_word(vector & 0o177777, mode=MD_KER) & 0o177777
+        new_psw = bus.read_word((vector + 2) & 0o177777, mode=MD_KER) & 0o177777
+        # previous mode <- old current mode; current mode from the vector PSW
+        st.psw.value = (new_psw & ~PSW.Prev_MODE) | ((old_cm << 12) & PSW.Prev_MODE)
+        st.switch_mode((st.psw.value & PSW.Curr_MODE) >> 14, old_cm)
+        push_word(cpu, pc)                    # old PC saved first (deepest)
+        push_word(cpu, psw)                   # then old PSW on top
+        st.R[Reg.PC] = new_pc
+    else:
+        push_word(cpu, pc)
+        push_word(cpu, psw)
+        st.R[Reg.PC] = bus.read_word(vector) & 0o177777
+        st.psw.value = bus.read_word((vector + 2) & 0o177777)
+        st.psw.set(PSW.Curr_MODE | PSW.Prev_MODE, False)
+
+
 def trap(cpu: CPU, vector: int, saved_pc: int | None = None) -> None:
     """
     Dispatch a trap through `vector` (octal).
@@ -76,16 +108,8 @@ def trap(cpu: CPU, vector: int, saved_pc: int | None = None) -> None:
     (which pops PSW then PC) returns symmetrically.
     """
     st = cpu.state
-    bus = _bus(cpu)
     pc = st.R[Reg.PC] if saved_pc is None else saved_pc
-    push_word(cpu, pc)                        # old PC saved first (deepest)
-    push_word(cpu, st.psw.value)              # then old PSW on top
-    st.R[Reg.PC] = bus.read_word(vector) & 0o177777
-    st.psw.value = bus.read_word((vector + 2) & 0o177777)
-    # On machines without modes the mode bits in the loaded PSW are ignored
-    # by the profile (11/20: writes to them read back 0 — see PSW docstring).
-    if not cpu.profile.has_mmu:
-        st.psw.set(PSW.Curr_MODE | PSW.Prev_MODE, False)
+    enter_vector(cpu, vector, pc, st.psw.value)
 
 
 def bus_error(cpu: CPU, saved_pc: int) -> None:

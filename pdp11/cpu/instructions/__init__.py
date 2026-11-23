@@ -26,7 +26,7 @@ from __future__ import annotations
 KD11B_NOOP_HANDLERS = frozenset({
     "instr_MUL", "instr_DIV", "instr_ASH", "instr_ASHC",
     "instr_XOR", "instr_SOB", "instr_MARK_SPL", "instr_SXT",
-    "instr_MTPS", "instr_MFPS",
+    "instr_MTPS", "instr_MFPS", "instr_SPL",
 })
 
 from pdp11.cpu.instructions import (  # noqa: E402  (registry order matters not; F401)

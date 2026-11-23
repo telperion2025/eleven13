@@ -18,6 +18,10 @@ M3: KW11-L line clock and RK11/RK05 with --disk containers (§16) attach
 through the same registry.
 M4: 11/03 Q-Bus arbiter (bus/qbus.py), DZ11 at 160100, RX11/RX01 at 177170;
 --disk dispatches by container size (RK05 -> RK11, RX01 -> RX11, §11.2/§11.3).
+M5: 11/70 Massbus — RH70 at 176700 with an RP06/RP07 drive (devices/
+rh70_rp.py); --disk dispatches RP06/RP07-sized containers to the RH70 (§16).
+DMA devices get board.dma_host (Unibus map applied on the 11/70) and the
+RH70 gets board.massbus_host (22-bit physical direct, §6.1).
 """
 
 from __future__ import annotations
@@ -29,15 +33,24 @@ import time
 from typing import Any
 
 from pdp11.board import SystemBoard
+from pdp11.bus.massbus import RH70_BASE
 from pdp11.config.profiles import PROFILES, BusType, MachineProfile
 from pdp11.control.front_panel import ODT, FrontPanel
 from pdp11.control.rom_loader import attach_boot_rom
 from pdp11.devices.dl11 import DL11
 from pdp11.devices.dz11 import DZ11
 from pdp11.devices.kw11l import KW11L
+from pdp11.devices.rh70_rp import RH70, RP06, RP07
 from pdp11.devices.rk11_rk05 import RK05, RK11
 from pdp11.devices.rx11 import RX11
-from pdp11.disk_images.container import RK05_SECTOR, RX01_SECTOR, open_disk_image
+from pdp11.disk_images.container import (
+    RK05_SECTOR,
+    RP06_SECTORS,
+    RP07_SECTORS,
+    RP_SECTOR,
+    RX01_SECTOR,
+    open_disk_image,
+)
 from pdp11.graphics.render_backend import RenderBackend, StdioBackend
 from pdp11.graphics.terminal import ConsoleTerminal, TerminalFrontend
 from pdp11.system_clock import SystemClock
@@ -53,6 +66,7 @@ KW11L_BASE = 0o177546
 RK11_BASE = 0o177400
 RX11_BASE = 0o177170
 DZ11_BASE = 0o160100
+# RH70_BASE imported from bus.massbus (0o176700)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -109,8 +123,11 @@ def assemble(args: argparse.Namespace, terminal: TerminalFrontend) -> SystemBoar
     disks = [open_disk_image(p) for p in (args.disk or [])]   # containers (§16)
     rk_images = [d for d in disks if d.sector_size == RK05_SECTOR]
     rx_images = [d for d in disks if d.sector_size == RX01_SECTOR]
+    rp_images = [d for d in disks if d.sector_size == RP_SECTOR
+                 and d.sector_count in (RP06_SECTORS, RP07_SECTORS)]
     rk_attached = False
     rx_attached = False
+    rh_attached = False
     for name in requested:
         if name == "dl11_console":
             board.attach_device(CONSOLE_DL11_BASE, DL11(clock, terminal))
@@ -122,19 +139,26 @@ def assemble(args: argparse.Namespace, terminal: TerminalFrontend) -> SystemBoar
             board.attach_device(DZ11_BASE, DZ11(clock, br_level=br))
         elif name == "rk11_rk05":
             image = rk_images.pop(0) if rk_images else None
-            board.attach_device(RK11_BASE, RK11(clock, board, RK05(image)))
+            board.attach_device(RK11_BASE, RK11(clock, board.dma_host, RK05(image)))
             rk_attached = True
         elif name == "rx11":
             image = rx_images.pop(0) if rx_images else None
             board.attach_device(RX11_BASE, RX11(clock, image))
             rx_attached = True
+        elif name == "rh70_rp":
+            image = rp_images.pop(0) if rp_images else None
+            drive = (RP07(image) if image is not None and image.sector_count == RP07_SECTORS
+                     else RP06(image))
+            board.attach_device(RH70_BASE, RH70(clock, board.massbus_host, drive))
+            rh_attached = True
         else:
             _log.info("device %r not implemented until its milestone — skipping", name)
     # leftover --disk images attach by container format (§16): RK05 -> RK11,
-    # RX01 -> RX11 — even on profiles whose defaults don't list them (§11.2/§11.3)
+    # RX01 -> RX11, RP06/RP07 -> RH70 — even on profiles whose defaults don't
+    # list them (§11.2/§11.3)
     for image in rk_images:
         if not rk_attached:
-            board.attach_device(RK11_BASE, RK11(clock, board, RK05(image)))
+            board.attach_device(RK11_BASE, RK11(clock, board.dma_host, RK05(image)))
             rk_attached = True
         else:
             _log.info("extra RK05 image %s: v1 models drive unit 0 only — ignored", image.path)
@@ -144,6 +168,13 @@ def assemble(args: argparse.Namespace, terminal: TerminalFrontend) -> SystemBoar
             rx_attached = True
         else:
             _log.info("extra RX01 image %s: v1 models drive 0 only — ignored", image.path)
+    for image in rp_images:
+        if not rh_attached:
+            drive = RP07(image) if image.sector_count == RP07_SECTORS else RP06(image)
+            board.attach_device(RH70_BASE, RH70(clock, board.massbus_host, drive))
+            rh_attached = True
+        else:
+            _log.info("extra RP image %s: v1 models one Massbus drive — ignored", image.path)
     if args.console not in ("odt",):
         _log.info("--console %s: full terminal emulation lands M7; using plain console",
                   args.console)

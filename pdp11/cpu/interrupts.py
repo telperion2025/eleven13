@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 from pdp11.bus.abstract_bus import BusDevice
 from pdp11.cpu.registers import Reg
-from pdp11.cpu.traps import _bus, push_word
+from pdp11.cpu.traps import enter_vector
 
 if TYPE_CHECKING:  # pragma: no cover — typing only
     from pdp11.cpu.core import CPU
@@ -61,10 +61,9 @@ def service(cpu: CPU, req: tuple[int, int] | None) -> bool:
     st = cpu.state
     if ipl <= st.psw.ipl:
         return False                       # masked by current priority
-    bus = _bus(cpu)
-    push_word(cpu, st.R[Reg.PC])           # interrupt entry pushes PC...
-    push_word(cpu, st.psw.value)           # ...then PSW, same as a trap
-    st.R[Reg.PC] = bus.read_word(vector) & 0o177777
-    st.psw.value = bus.read_word((vector + 2) & 0o177777)
+    # interrupt entry vectors like a trap: PC then PSW pushed, vector loaded;
+    # on MMU machines the vector comes from kernel D space and the stack is
+    # the new mode's (traps.enter_vector, §5.5/§5.7)
+    enter_vector(cpu, vector, st.R[Reg.PC], st.psw.value)
     st.waiting = False                     # WAIT exits on any taken interrupt
     return True

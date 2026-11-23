@@ -15,7 +15,8 @@ the ODT console takes over in M2 (§9). WAIT parks until an interrupt (§5.5).
 from __future__ import annotations
 
 from pdp11.cpu import traps
-from pdp11.cpu.core import CPU, opcode
+from pdp11.cpu.core import CPU, opcode, read_op, resolve_operand, write_op
+from pdp11.cpu.registers import PSW, Reg
 
 
 @opcode(0o000000, fmt="none")
@@ -34,11 +35,15 @@ def instr_WAIT(cpu: CPU) -> None:
 
 @opcode(0o000002, fmt="none")
 def instr_RTI(cpu: CPU) -> None:
-    """RTI: PSW <- (SP)+, PC <- (SP)+ — return from trap/interrupt."""
-    from pdp11.cpu.registers import Reg
+    """RTI: PSW <- (SP)+, PC <- (SP)+ — return from trap/interrupt. On MMU
+    machines the mode switch happens after both pops (the saved SP bank is
+    restored via switch_mode, §5.1)."""
     st = cpu.state
+    old_cm = (st.psw.value & PSW.Curr_MODE) >> 14
     st.psw.value = traps.pop_word(cpu)
     st.R[Reg.PC] = traps.pop_word(cpu) & 0o177777
+    if cpu.profile.has_mmu:
+        st.switch_mode((st.psw.value & PSW.Curr_MODE) >> 14, old_cm)
 
 
 @opcode(0o000003, fmt="none")
@@ -83,47 +88,98 @@ def instr_COND(cpu: CPU) -> None:
     cpu.state.psw.set(flags, set_op)
 
 
-@opcode(0o106400, mask=0o177700, caps="MMU", fmt="dst")   # MTPS (11/45+; no-op on 11/20, §2)
+@opcode(0o000230, mask=0o177770, caps="MMU", fmt="none")    # SPL 0o00023m (11/45+; no-op on 11/20)
+def instr_SPL(cpu: CPU) -> None:
+    """SPL m: set interrupt priority level — PSW<7:5> <- m (Lions' commentary:
+    "spl set IPL to m 00023m"). On the 11/20 the capability gate no-ops it
+    (KD11B_NOOP_HANDLERS, §5.4)."""
+    psw = cpu.state.psw
+    psw.value = (psw.value & ~PSW.IPL_MASK) | ((cpu.last_op_word & 0o7) << 5)
+
+
+@opcode(0o106400, mask=0o177700, caps="MMU", fmt="dst")   # MTPS 0o1064dd (no-op on 11/20)
 def instr_MTPS(cpu: CPU) -> None:
-    """MTPS: move to PSW — MMU-era instruction (M5/M6, §5.7). On the 11/20 the
-    capability gate no-ops it (KD11B_NOOP_HANDLERS, §5.4)."""
-    raise NotImplementedError("§5.7 MTPS — M5/M6 (11/70, 11/94)")
+    """MTPS dd: move BYTE to PSW — PSW<7:0> <- src<7:0> (IPL/T/CC only; the
+    mode bits live in the high byte and are not touched here, §5.7)."""
+    st = cpu.state
+    bus = cpu.bus
+    assert bus is not None
+    spec = cpu.last_op_word & 0o77
+    ea = resolve_operand(st, bus, spec, True, True)
+    val = read_op(cpu, spec, ea, True)
+    psw = st.psw
+    psw.value = (psw.value & 0o177400) | (val & 0o377)
 
 
-@opcode(0o106700, mask=0o177700, caps="MMU", fmt="dst")   # MFPS (11/45+; no-op on 11/20, §2)
+@opcode(0o106700, mask=0o177700, caps="MMU", fmt="dst")   # MFPS 0o1067dd (no-op on 11/20)
 def instr_MFPS(cpu: CPU) -> None:
-    """MFPS: move from PSW — MMU-era instruction (M5/M6, §5.7). On the 11/20
-    the capability gate no-ops it (§5.4)."""
-    raise NotImplementedError("§5.7 MFPS — M5/M6 (11/70, 11/94)")
+    """MFPS dd: move BYTE from PSW — dst<7:0> <- PSW<7:0> (§5.7)."""
+    st = cpu.state
+    bus = cpu.bus
+    assert bus is not None
+    spec = cpu.last_op_word & 0o77
+    ea = resolve_operand(st, bus, spec, False, True)
+    write_op(cpu, spec, ea, st.psw.value & 0o377, True)
 
 
-@opcode(0o006400, mask=0o177700, caps="MMU", fmt="dst")   # MARK/SPL share 0o0064xx; split in M5/M6
+@opcode(0o006400, mask=0o177700, caps="MMU", fmt="none")  # MARK 0o0064nn (no-op on 11/20)
 def instr_MARK_SPL(cpu: CPU) -> None:
-    """MARK 0o0064dd / SPL 0o0064xx — 11/45+ instructions sharing the 0o0064
-    space; the per-machine split (KD11-Z vs DCJ-11) lands with M5/M6 per the
-    per-machine handbooks (§21). On the 11/20: no-op (spec §2, §5.4)."""
-    raise NotImplementedError("§2 MARK/SPL 0o0064xx — M5/M6 (no-op on 11/20 via capability gate)")
+    """MARK nn (0o0064nn): SP <- PC + 2*nn ; PC <- R5 ; R5 <- (SP)+ — the
+    caller's MARK frame is executed on the stack by the return routine
+    (Lions' PDP-11 commentary). On the 11/20: no-op (§2, §5.4)."""
+    st = cpu.state
+    n = cpu.last_op_word & 0o77
+    st.R[Reg.SP] = (st.R[Reg.PC] + 2 * n) & 0o177777
+    st.R[Reg.PC] = st.R[5] & 0o177777
+    st.R[5] = traps.pop_word(cpu)
+
+
+def _prev_mode(cpu: CPU) -> int:
+    """The PSW previous-mode field <13:12> (11/70/94, §5.1)."""
+    return (cpu.state.psw.value & PSW.Prev_MODE) >> 12
+
+
+def _prev_space_op(cpu: CPU, spec: int, *, to_prev: bool, is_instruction: bool) -> None:
+    """MFPI/MTPI/MFPD/MTPD core: move one word between the current address
+    space and the PREVIOUS mode's I or D space (§5.7)."""
+    st = cpu.state
+    bus = cpu.bus
+    assert bus is not None
+    ea = resolve_operand(st, bus, spec, not to_prev, False)
+    prev = _prev_mode(cpu)
+    if to_prev:                                # MTPI/MTPD: write previous space
+        val = read_op(cpu, spec, ea, False)
+        if ea < 0:
+            write_op(cpu, spec, ea, val, False)
+        else:
+            bus.write_word(ea, val, fetch=is_instruction, mode=prev)
+    else:                                      # MFPI/MFPD: read previous space
+        if ea < 0:
+            val = st.R[spec & 0o7]
+        else:
+            val = bus.read_word(ea, fetch=is_instruction, mode=prev)
+        write_op(cpu, spec, ea, val, False)
 
 
 @opcode(0o006500, mask=0o177700, caps="MMU", fmt="dst")   # MFPI 0o0065dd
 def instr_MFPI(cpu: CPU) -> None:
-    """MFPI: move from previous I/D space — MMU-only (§5.7)."""
-    raise NotImplementedError("§5.7 MFPI — M5/M6 (11/70, 11/94)")
+    """MFPI dd: dst <- previous mode's I space (§5.7)."""
+    _prev_space_op(cpu, cpu.last_op_word & 0o77, to_prev=False, is_instruction=True)
 
 
 @opcode(0o006600, mask=0o177700, caps="MMU", fmt="dst")   # MTPI 0o0066dd
 def instr_MTPI(cpu: CPU) -> None:
-    """MTPI: move to previous I/D space — MMU-only (§5.7)."""
-    raise NotImplementedError("§5.7 MTPI — M5/M6 (11/70, 11/94)")
+    """MTPI dd: previous mode's I space <- src (§5.7)."""
+    _prev_space_op(cpu, cpu.last_op_word & 0o77, to_prev=True, is_instruction=True)
 
 
 @opcode(0o106500, mask=0o177700, caps="MMU", fmt="dst")   # MTPD 0o1065dd
 def instr_MTPD(cpu: CPU) -> None:
-    """MTPD: move to previous D space — MMU-only (§5.7)."""
-    raise NotImplementedError("§5.7 MTPD — M5/M6 (11/70, 11/94)")
+    """MTPD dd: previous mode's D space <- src (§5.7)."""
+    _prev_space_op(cpu, cpu.last_op_word & 0o77, to_prev=True, is_instruction=False)
 
 
 @opcode(0o106600, mask=0o177700, caps="MMU", fmt="dst")   # MFPD 0o1066dd
 def instr_MFPD(cpu: CPU) -> None:
-    """MFPD: move from previous D space — MMU-only (§5.7)."""
-    raise NotImplementedError("§5.7 MFPD — M5/M6 (11/70, 11/94)")
+    """MFPD dd: dst <- previous mode's D space (§5.7)."""
+    _prev_space_op(cpu, cpu.last_op_word & 0o77, to_prev=False, is_instruction=False)

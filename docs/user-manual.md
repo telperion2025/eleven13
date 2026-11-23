@@ -25,7 +25,7 @@ python -m pdp11.main --machine 11/20 ...     # identical, module form
 |---|---|---|
 | `--machine {11/03,11/20,11/70,11/94}` | **Required.** Selects the emulated model. There is deliberately no default (spec §4.1). | M1 |
 | `--memory OCT_WORDS` | RAM size in **octal** words, overriding the profile ceiling. | M1 (parsed) |
-| `--disk IMAGE` | Attach a disk image; format auto-detected from file size per spec §16 (repeatable). Dispatched by container: RK05-sized → RK11 at 177400, RX01-sized → RX11 at 177170. | M3/M4 |
+| `--disk IMAGE` | Attach a disk image; format auto-detected from file size per spec §16 (repeatable). Dispatched by container: RK05-sized → RK11 at 177400, RX01-sized → RX11 at 177170, RP06/RP07-sized (512-byte sectors) → RH70 at 176700 on the 11/70 (Massbus). | M3/M4/M5 |
 | `--console {vt100,vt52,la36,odt}` | Terminal frontend (default `vt100`). | M2/M7 |
 | `--bootrom FILE` | Load an M9312 512-word boot PROM image (spec §13). Without it, a simplified built-in bootstrap is used — documented as **non-authentic**. | M2/M3 |
 | `--config FILE.json` | Per-run overrides (memory size, devices, volumes) layered over the profile; see `pdp11/config/config.json` for the schema example. | M2+ |
@@ -38,12 +38,18 @@ python -m pdp11.main --machine 11/20 ...     # identical, module form
 All numeric CLI arguments that denote machine quantities are **octal**
 (spec §10.1), e.g. `--memory 0o20000`.
 
-### Current M1 behavior
+### Current M5 behavior
 
-At M1 the CLI validates arguments, loads the selected `MachineProfile`,
-creates the deterministic `SystemClock`, prints its skeleton notice and exits
-0. The full run loop (SystemBoard + devices + console) arrives with M2; the
-CPU core is exercised directly by the test suite (`pdp11/tests/cpu_golden.py`).
+All four profiles assemble and run. On the **11/70** (`--machine 11/70`)
+the machine comes up with the KD11-Z: 22-bit physical memory, the MMU
+(off until MMR0 MME is set — boot code maps the kernel APRs first), the
+Unibus map, the RH70 Massbus controller at 176700 with an RP06/RP07 drive
+when `--disk rp06.dsk` is given, and the FP11. HALT drops to ODT, which on
+MMU machines prints the `^ address` display first (spec §13). Example:
+
+```sh
+eleven13 --machine 11/70 --disk rp06.dsk
+```
 
 ## 3. Running a machine and the console
 
