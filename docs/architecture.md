@@ -114,8 +114,8 @@ gates, custom TRACE (level 5) the fetch/decode path (spec §18.3).
 | `pdp11/control/front_panel.py`, `rom_loader.py` | ODT + boot PROMs | done (M2); debugger/snapshot stubs (M7/M8) |
 | `pdp11/graphics/` | terminal interfaces | ConsoleTerminal + StdioBackend done (M2); VT100/curses M7 |
 | `pdp11/main.py` | CLI + assembly + run loop | done (M2) |
-| `pdp11/devices/` | DL11…KW11-P | documented stubs (M2–M6) |
+| `pdp11/devices/` | DL11…KW11-P | DL11, KW11-L, RK11/RK05 done (M2/M3); rest stubbed to their milestones |
 | `pdp11/graphics/` | terminals + render backends | stubs (M7) |
-| `pdp11/disk_images/` | SIMH-compatible containers | stubs (M3/M8) |
+| `pdp11/disk_images/` | SIMH-compatible containers | RK05/RX01 raw containers done (M3); `.tap`/`.hp` + simh_compat M8 |
 | `pdp11/control/` | ODT, debugger, snapshots, ROM loader | stubs (M2/M7/M8) |
 | `pdp11/tests/` | skeleton + golden + device/diagnostic suites | M1 tests green |

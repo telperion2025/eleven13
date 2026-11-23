@@ -14,7 +14,18 @@ silently omitted from BusDevice.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Protocol
+
+
+class DMAHost(Protocol):
+    """The bus face a DMA-capable device drives its transfers through
+    (§5.5/§6.1): word-granularity access to physical bus addresses while it
+    holds the NPR grant. SystemBoard satisfies this structurally; devices
+    depend only on this bus-layer contract and never import the board
+    (layering, §3 — no cpu↔devices↔board imports)."""
+
+    def read_word(self, addr: int) -> int: ...
+    def write_word(self, addr: int, value: int) -> None: ...
 
 
 class BusInit(Exception):
