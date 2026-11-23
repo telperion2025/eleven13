@@ -1,0 +1,27 @@
+# eleven13 CI (spec §18.2 quality gates). The repo's dev extras pin the
+# toolchain via uv.lock, so every gate runs through `make` (uv run ...):
+#   test  — pytest (pdp11/tests)
+#   lint  — ruff check, zero findings
+#   type  — mypy --strict on the spec-gated modules
+# Coverage/determinism jobs of §18.2 land when pytest-cov lands (no new
+# dependencies before M8 per §18.1).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Quality gates (make check = test + lint + type)
+        run: make check
