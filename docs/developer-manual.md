@@ -96,7 +96,7 @@ cpu/ bus/ ≥ 90 %, devices ≥ 70 %; a determinism job replays a scripted
 | Milestone | Deliverable | Status |
 |---|---|---|
 | M1 | Skeleton + 11/20 BASE CPU on flat memory (§17 scaffolding) | **done** — see docs/acceptance-checklist.md |
-| M2 | Unibus + I/O page + DL11 console + ODT shell | in progress — Unibus arbitration done (`bus/unibus.py`, `test_unibus.py`); DL11/ODT/boot next |
+| M2 | Unibus + I/O page + DL11 console + ODT shell | **done** — `bus/unibus.py`, `devices/dl11.py`, `control/front_panel.py` (ODT), `control/rom_loader.py`, `main.py` run loop; 53 tests green |
 | M3 | KW11-L + RK05/RK11 + containers; RT-11 boots on 11/20 | stubbed |
 | M4 | 11/03 Q-Bus + EIS (KEF11); DZ11 | stubbed |
 | M5 | 11/70: MMU, Unibus map, Massbus RH70+RP06, FP11 | stubbed |

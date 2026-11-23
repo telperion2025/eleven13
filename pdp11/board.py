@@ -28,6 +28,7 @@ from pdp11.cpu.core import CPU
 from pdp11.cpu.registers import PSW, Reg
 from pdp11.memory.io_page import IOPPage
 from pdp11.memory.ram import RAM
+from pdp11.memory.rom import ROM
 from pdp11.system_clock import SystemClock
 
 WORD_MASK = 0o177777
@@ -96,7 +97,14 @@ class SystemBoard:
         words = ram_words if ram_words is not None else min(
             profile.max_ram_words, profile.iopage_base >> 1)
         self.ram = RAM(words)
-        self.io_page = IOPPage(profile.iopage_base)
+        # The I/O page is the TOP 8 KB of the 16-bit bus window (0o160000-0o177777,
+        # §6.2 "top 8 KB"; the profile's 56 KB-usable comment matches). Within it,
+        # profile.iopage_base (0o177600) marks the internal-register boundary, so
+        # device windows like the console DL11 at 0o177560 route correctly.
+        self._io_base = 0o200000 - 0o20000
+        self.io_page = IOPPage(self._io_base)
+        self.rom: ROM | None = None          # boot PROM overlay (§13), M2
+        self.rom_base = 0
         # M2: Unibus machines get a real Unibus arbiter (NPR/BR daisy chain,
         # §6.1); the board's device list IS the backplane slot order.
         # Q-Bus profiles keep the plain list until M4/M6 (qbus.py).
@@ -118,9 +126,16 @@ class SystemBoard:
         """Reset the per-instruction bus-cycle counter; called by CPU.step."""
         self.cycles_used = 0
 
+    def attach_rom(self, base: int, rom: ROM) -> None:
+        """Overlay a boot PROM at octal `base` (M9312 window 173000, §13)."""
+        self.rom = rom
+        self.rom_base = base
+
     def _classify(self, addr: int) -> str:
-        """Route an address: 'ram', 'io', or 'none' (nonexistent memory)."""
-        if addr >= self.profile.iopage_base:
+        """Route an address: 'rom', 'ram', 'io', or 'none' (nonexistent)."""
+        if self.rom is not None and self.rom_base <= addr < self.rom_base + len(self.rom.data) * 2:
+            return "rom"
+        if addr >= self._io_base:
             return "io"
         if addr < len(self.ram.data) * 2:
             return "ram"
@@ -144,6 +159,8 @@ class SystemBoard:
         if addr & 1:                             # Unibus word reads must be even
             self._bus_error(addr, is_word=True)
         kind = self._classify(addr)
+        if kind == "rom":
+            return self.rom.read_word(addr - self.rom_base) if self.rom else 0
         if kind == "ram":
             return self.ram.read_word(addr)
         if kind == "io":
@@ -157,7 +174,10 @@ class SystemBoard:
         if addr & 1:
             self._bus_error(addr, is_word=True)
         kind = self._classify(addr)
-        if kind == "ram":
+        if kind == "rom":
+            if self.rom:
+                self.rom.write_word(addr - self.rom_base, value)  # PROMs ignore writes
+        elif kind == "ram":
             self.ram.write_word(addr, value)
         elif kind == "io":
             self.io_page.write_word(addr, value)
@@ -169,6 +189,8 @@ class SystemBoard:
         addr &= self._addr_mask
         self.cycles_used += 1
         kind = self._classify(addr)
+        if kind == "rom":
+            return self.rom.read_byte(addr - self.rom_base) if self.rom else 0
         if kind == "ram":
             return self.ram.read_byte(addr)
         if kind == "io":
@@ -180,7 +202,10 @@ class SystemBoard:
         addr &= self._addr_mask
         self.cycles_used += 1
         kind = self._classify(addr)
-        if kind == "ram":
+        if kind == "rom":
+            if self.rom:
+                self.rom.write_byte(addr - self.rom_base, value)  # ignored
+        elif kind == "ram":
             self.ram.write_byte(addr, value)
         elif kind == "io":
             self.io_page.write_byte(addr, value)

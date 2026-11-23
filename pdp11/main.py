@@ -11,15 +11,35 @@ Responsibilities (ONLY these, per §4.2 — main.py is a thin shell):
 Sample:
     eleven13 --machine 11/20 --debug          # console script (pyproject entry point)
     python -m pdp11.main --machine 11/20 --debug  # module form, same effect
+
+M2: real assembly — SystemBoard + console DL11 + boot ROM (§13) + ODT shell
+on HALT (§9). Wall-clock throttling lives only in run() below (§19.6).
 """
 
 from __future__ import annotations
 
 import argparse
-import sys
+import json
+import logging
+import time
+from typing import Any
 
-from pdp11.config.profiles import PROFILES
+from pdp11.board import SystemBoard
+from pdp11.config.profiles import PROFILES, MachineProfile
+from pdp11.control.front_panel import ODT, FrontPanel
+from pdp11.control.rom_loader import attach_boot_rom
+from pdp11.devices.dl11 import DL11
+from pdp11.graphics.render_backend import RenderBackend, StdioBackend
+from pdp11.graphics.terminal import ConsoleTerminal, TerminalFrontend
 from pdp11.system_clock import SystemClock
+
+_log = logging.getLogger(__name__)
+
+BUS_CYCLE_NS = 150  # nominal Unibus cycle (§5.6) — used ONLY for --throttle pacing
+
+# Device registry: names from profile.default_devices -> (base address, factory).
+# Devices whose milestone hasn't landed are skipped with an INFO note (§19.10).
+CONSOLE_DL11_BASE = 0o177560
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -37,6 +57,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    default="vt100", help="terminal frontend (§8)")
     p.add_argument("--bootrom", metavar="FILE",
                    help="M9312 boot PROM image — §13")
+    p.add_argument("--config", metavar="FILE.json",
+                   help="per-run JSON overrides layered over the profile — §4.1")
     p.add_argument("--throttle", action="store_true",
                    help="slow execution to real-machine speed (default: full)")
     p.add_argument("--debug", action="store_true",
@@ -44,20 +66,75 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: list[str] | None = None) -> int:
+def _load_config_overrides(path: str | None) -> dict[str, Any]:
+    """--config <json>: per-run overrides (memory_words, devices, volumes)."""
+    if not path:
+        return {}
+    with open(path, encoding="utf-8") as fh:      # user-facing error if unreadable
+        data = json.load(fh)
+    if not isinstance(data, dict):
+        raise ValueError(f"config {path} must be a JSON object")
+    return data
+
+
+def assemble(args: argparse.Namespace, terminal: TerminalFrontend) -> SystemBoard:
+    """Build the machine from the profile + CLI/config overrides (§4.2)."""
+    profile: MachineProfile = PROFILES[args.machine]
+    overrides = _load_config_overrides(args.config)
+    clock = SystemClock()                          # §5.6: deterministic scheduler
+    ram_words: int | None = args.memory            # --memory OCT_WORDS (octal, §10.1)
+    if ram_words is None and "memory_words" in overrides:
+        ram_words = int(str(overrides["memory_words"]), 8)   # config.json override
+    board = SystemBoard(profile, clock, ram_words=ram_words)
+
+    # boot ROM (M9312 image or the documented non-authentic fallback, §13)
+    attach_boot_rom(board, args.bootrom)
+
+    # default devices: attach the implemented ones in profile order (slot
+    # order = daisy-chain priority, §6.1); skip not-yet-implemented ones.
+    requested = overrides.get("devices", profile.default_devices)
+    for name in requested:
+        if name == "dl11_console":
+            board.attach_device(CONSOLE_DL11_BASE, DL11(clock, terminal))
+        else:
+            _log.info("device %r not implemented until its milestone — skipping", name)
+    if args.disk:
+        _log.info("--disk images land with the disk containers milestone (M3) — ignored")
+    if args.console not in ("odt",):
+        _log.info("--console %s: full terminal emulation lands M7; using plain console",
+                  args.console)
+    return board
+
+
+def run(board: SystemBoard, terminal: TerminalFrontend, throttle: bool = False) -> int:
+    """Run loop: execute until HALT, then hand to ODT (§9). Returns exit code.
+    Wall-clock throttling exists ONLY here, outside the deterministic core."""
+    cpu = board.cpu
+    panel = FrontPanel(board)
+    t0 = time.monotonic()
+    while True:
+        while not cpu.state.halted:
+            cpu.step()
+            if terminal.break_pending():          # BREAK key -> HALT (§13)
+                panel.halt()
+            if throttle:                           # §14/§19.6: pace to 150 ns/cycle
+                target = t0 + board.clock.cycle * BUS_CYCLE_NS / 1e9
+                delay = target - time.monotonic()
+                if delay > 0:
+                    time.sleep(delay)
+        action = ODT(board, terminal).run()           # HALT -> ODT (§9)
+        if action == "quit":
+            return 0
+        panel.run()                                    # G -> RUN (§13)
+
+
+def main(argv: list[str] | None = None, backend: RenderBackend | None = None) -> int:
     """Assemble the chosen machine and run until HALT/error."""
     args = build_arg_parser().parse_args(argv)
-    profile = PROFILES[args.machine]          # KeyError impossible: argparse choices
-    clock = SystemClock()                     # §5.6: deterministic scheduler
-
-    # Placeholder machine assembly for M1 — fleshed out in M2 (SystemBoard):
-    #   memory = RAM(profile.max_ram_words)
-    #   iopage = IOPPage(profile.iopage_base)
-    #   devices = [load_device(n)(...) for n in profile.default_devices]
-    #   cpu = CPU(profile, clock); cpu.bus = memory_bus(memory, iopage, profile)
-    print(f"pdp11 {profile.key} skeleton built (M1); run loop lands with M2 "
-          f"(deterministic clock at cycle {clock.cycle})", file=sys.stderr)
-    return 0
+    logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
+    terminal: TerminalFrontend = ConsoleTerminal(backend if backend is not None else StdioBackend())
+    board = assemble(args, terminal)
+    return run(board, terminal, throttle=args.throttle)
 
 
 if __name__ == "__main__":

@@ -5,12 +5,12 @@ submission:
 
 | # | Criterion (spec §11) | Status |
 |---|---|---|
-| 1 | All four profiles assemble, enter ODT, run MAINDEC CPU diagnostics to a pass/fail report | **blocked on M2/M7** — profiles assemble and are unit-tested; ODT + MAINDEC runs land with M2 (ODT) and M8 (`tests/machine_diagnostics.py`) |
+| 1 | All four profiles assemble, enter ODT, run MAINDEC CPU diagnostics to a pass/fail report | profiles assemble, boot ROM path + ODT shell **done in M2** (`test_console.py`: 11/03 built-in bootstrap prints via DL11 and HALTs to ODT; 11/20 HALTs at 000000 into ODT); MAINDEC runs land M8 (`tests/machine_diagnostics.py`) |
 | 2 | RT-11 boots from an RX01 image on 11/03 and 11/94 | M3/M4 (RX11 driver + container) |
 | 3 | RT-11 boots from an RK05 image on 11/20 | M3 (RK11/RK05 reference driver) |
 | 4 | RSTS/E or RSX-11M boots on 11/70 from an RP06 (RH70/Massbus), MMU across kernel/supervisor/user | M5 |
 | 5 | 11/20 no-ops microcoded-only instructions rather than executing them | **done at CPU level** — `test_1120_noops_microcoded_only_opcodes` + `test_eis_raises_notimplemented_on_eis_fitted_machine` (capability gate, spec §5.4); MAINDEC CK41 cross-check per §22.5 R1 |
-| 6 | Console DL11 traffic end-to-end with the VT100 frontend on all profiles | M2/M7 |
+| 6 | Console DL11 traffic end-to-end with the VT100 frontend on all profiles | DL11 console + run loop **done in M2** (`device_unit.py`, `test_console.py`); VT100 state machine M7 |
 | 7 | Timing tests: KW11-L ticks, Q-Bus DMA, Unibus NPR priority interact causally (not wall clock) | scheduler core **done** (`test_clock_is_deterministic_across_replays`, `test_clock_events_drain_during_run`); Unibus NPR/BR arbitration **done in M2** (`test_unibus.py`: NPR outranks BR, daisy-chain slot order, word-granularity cycle stealing); device-level scenarios M2–M6 |
 | 8 | Mid-boot snapshot restores byte-identically and continues identically | M8 (snapshot.py; device serialize contract already in place) |
 | 9 | Power-fail/restore (vector 000024) exercised with orderly shutdown + auto-restart | M8 (`--powerfail`/`--powerrestore`) |
