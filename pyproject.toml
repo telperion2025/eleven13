@@ -1,3 +1,10 @@
+[build-system]
+# Build-time only (uv installs this in an isolated build env, never into the
+# runtime venv) — the runtime stays stdlib-only per spec §18.1. Packaging is
+# enabled so the [project.scripts] entry point `eleven13` is installed.
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "eleven13"                     # distribution/CLI name (13 octal = 11 decimal)
 version = "0.1.0"
@@ -11,6 +18,13 @@ pixel = ["pygame>=2.5"]                # optional pixel render backend (spec §8
 
 [project.scripts]
 eleven13 = "pdp11.main:main"           # CLI entry point: `eleven13 --machine 11/70`
+
+[tool.uv]
+package = true                         # build+install the project itself, so the
+                                       # `eleven13` console script lands in .venv/bin
+
+[tool.hatch.build.targets.wheel]
+packages = ["pdp11"]                   # package root is pdp11/, not the dist name
 
 [tool.ruff]
 line-length = 100
