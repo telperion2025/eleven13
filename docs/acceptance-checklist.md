@@ -4,12 +4,12 @@ Version 1 is complete when all eleven criteria pass. Status after M3:
 
 | # | Criterion (spec §11) | Status |
 |---|---|---|
-| 1 | All four profiles assemble, enter ODT, run MAINDEC CPU diagnostics to a pass/fail report | profiles assemble, boot ROM path + ODT shell **done in M2** (`test_console.py`: 11/03 built-in bootstrap prints via DL11 and HALTs to ODT; 11/20 HALTs at 000000 into ODT); MAINDEC runs land M8 (`tests/machine_diagnostics.py`) |
+| 1 | All four profiles assemble, enter ODT, run MAINDEC CPU diagnostics to a pass/fail report | profiles assemble, boot ROM path + ODT shell **done in M2**; **M7: the §11.1 harness is in place** (`tests/machine_diagnostics.py`) and reports **4/4 profiles PASS** on the built-in smoke diagnostic (pinned by its tests); real MAINDEC binaries remain operator-supplied artifacts (§22.1) that plug into the same harness |
 | 2 | RT-11 boots from an RX01 image on 11/03 and 11/94 | RX11 driver + RX01 container **done in M4**; boot path verified end-to-end on the 11/03 (`test_console.py::test_rx01_boot_sector_end_to_end`); **11/94 profile assembled and boots the built-in bootstrap in M6** (`test_console.py::test_1194_*`). A *real* RT-11 RX01 image awaits the operator (§22.1) |
 | 3 | RT-11 boots from an RK05 image on 11/20 | RK11/RK05 driver + containers **done in M3**; the full boot path (I/O-page CSR writes → NPR word-at-a-time DMA → BR5/vector-220 completion interrupt) is verified end-to-end with a hand-built boot block (`test_console.py::test_rk05_boot_block_end_to_end`). Booting a *real* RT-11 image awaits an operator-supplied container (§22.1 — no image is fabricated) |
 | 4 | RSTS/E or RSX-11M boots on 11/70 from an RP06 (RH70/Massbus), MMU across kernel/supervisor/user | **M5 done at the machine level**: 11/70 MMU (3-mode I/D APR sets, MMR0-3, aborts via 000250/000004), Unibus map (BME-gated DMA face), RH70+RP06/RP07 Massbus driver, FP11 — `test_mmu.py`, `test_map.py`, `test_fp11.py`, `test_rh70.py`, `test_console.py` (11/70 assembly, RP06 `--disk`, bootstrap + `^` ODT display, MMU-on program path). Booting a *real* RSTS/RSX image awaits an operator-supplied RP06 container (§22.1 — no image is fabricated) |
 | 5 | 11/20 no-ops microcoded-only instructions rather than executing them | **done at CPU level** — `test_1120_noops_microcoded_only_opcodes` + `test_eis_raises_notimplemented_on_eis_fitted_machine` (capability gate, spec §5.4); MAINDEC CK41 cross-check per §22.5 R1 |
-| 6 | Console DL11 traffic end-to-end with the VT100 frontend on all profiles | DL11 console + run loop **done in M2** (`device_unit.py`, `test_console.py`); VT100 state machine M7 |
+| 6 | Console DL11 traffic end-to-end with the VT100 frontend on all profiles | **done in M7** — DL11 console + run loop (M2, `device_unit.py`, `test_console.py`) plus the real VT100/VT52 state machines and the LA36 hardcopy (`graphics/vt100.py`, `graphics/la36.py`), wired by `--console` in `main.py`; end-to-end banner/ODT traffic through the VT100 frontend is tested on all four profiles (`test_console.py::test_1103_bootstrap_via_default_vt100_frontend` et al., `test_vt100.py`, `test_la36.py`) |
 | 7 | Timing tests: KW11-L ticks, Q-Bus DMA, Unibus NPR priority interact causally (not wall clock) | scheduler core **done** (`test_clock_is_deterministic_across_replays`, `test_clock_events_drain_during_run`); Unibus NPR/BR arbitration **done in M2** (`test_unibus.py`); KW11-L 16 667-cycle tick + vector 000104/BR6 and RK11 seek/transfer scheduling **done in M3** (`device_unit.py`: `test_kw11l_*`, `test_rk11_seek_*`, `test_rk11_read_sector_via_npr_cycle_stealing`); Q-Bus DMA M4 |
 | 8 | Mid-boot snapshot restores byte-identically and continues identically | M8 (snapshot.py; device serialize contract already in place) |
 | 9 | Power-fail/restore (vector 000024) exercised with orderly shutdown + auto-restart | M8 (`--powerfail`/`--powerrestore`) |
@@ -181,3 +181,38 @@ Version 1 is complete when all eleven criteria pass. Status after M3:
     on 22-bit profiles the flat alias 0o160000-0o200000 shadows RAM there for
     ALL physical accesses incl. Massbus — consistent with the M2 I/O-page
     convention, flagged §22.4.
+
+### M7 reconciliations (§12 milestone 7: VT100/LA36 frontends, debugger, diagnostics)
+
+23. VT100 wrap is **immediate** (a printable at column 80 linefeeds first);
+    the real VT100 defers the wrap by one character via a pending-wrap flag.
+    Flagged §22.4; visible only in a full 80-column line boundary case.
+24. VT100 scope ceiling held per §8/R5: graphics character sets (ESC ( x)
+    are consumed and ignored, SGR (CSI m) is consumed with no rendition,
+    scroll regions (CSI r) are not modeled, and the VT52 ESC Z identify
+    answer (an input byte) is flagged, not modeled. Cross-check against SIMH
+    vt100.c in the §22.4 loop.
+25. LA36 DECwriter: 132-column line, hardcopy overwrite cursor, CR does not
+    print, LF prints the line (+CR LF), FF adds a form feed, bytes past
+    column 132 are dropped with a bell. "Line pacing" is NOT a wall clock:
+    byte pacing comes from the DL11 TX schedule (TX_CYCLES per byte,
+    devices/dl11.py) and the DECwriter buffers whole lines — deterministic
+    per §5.6/§19.6. Timing constants cross-checked against SIMH la36.c (§22.4).
+26. §14 performance instrumentation is **counters only** inside
+    `control/debugger.py` (PerfCounters: instructions, per-opcode-group
+    counts and charged base cycles); instructions/second is computed by
+    `main.py` at the run boundary because §19.6 bars `time.*` from the
+    machine modules — function-level timing dumps remain M8 work (§22.4).
+27. The §11.1 diagnostic harness (`tests/machine_diagnostics.py`) runs a
+    built-in BASE-only smoke diagnostic on all four profiles and reports
+    **pass rate 4/4 PASS** (pinned by tests in the module). Real MAINDEC
+    binaries are operator-supplied (§22.1 — none fabricated) and plug into
+    the same `run_diagnostic()` harness (load, run to HALT within budget,
+    check the flag word); their pass rates will be recorded here per §22.2.
+28. Debugger command set (§9 --debug) is line-based like ODT under the
+    `dbg>` prompt: `b`/`w` breakpoints/watchpoints, `s [n]` single-step with
+    disassembly, `r` registers, `m` MMU APRs+MMR0-3, `i` interrupt-pending,
+    `d` device stats, `c` container inspection, `p` perf counters — plus the
+    inherited ODT `/` `\` `G` `Q`. The §18.3 EmulationError crash dump
+    (registers, PC, last 8 opcodes via `CPU.op_trace`, clock cycle) prints
+    through the terminal and exits 1 (`main.py`, `test_debugger.py`).

@@ -38,6 +38,16 @@ M9312/KD11-F console: `/` examine, `\` deposit, `G` go, octal addresses only
 (spec §9). On the 11/70/94 the console first shows the `^ address` display
 (the halted PC), matching the 11/70 front-panel behavior (§13) —
 `pdp11/control/front_panel.py` emits `^nnnnnn` when `profile.has_mmu`.
+With `--debug` (M7) the HALT shell is the extended debugger (`dbg>` prompt,
+`pdp11/control/debugger.py`): breakpoints, watchpoints, single-step with
+disassembly, register/MMU/interrupt/device/container dumps, and §14 perf
+counters — see docs/user-manual.md §4 for the command list.
+
+The console output goes to the selected terminal frontend (M7, spec §8):
+`--console vt100` (default, real VT100 escape-sequence state machine),
+`vt52`, `la36` (DECwriter hardcopy — lines print on LF/FF, not on a screen),
+or `odt` (plain text). All are 7-bit ASCII devices; host keys with no 7-bit
+equivalent are dropped with a debug-log note (§8).
 
 ## 3. The 11/20 bin-load ritual (operator's writeup, spec §13)
 

@@ -151,11 +151,12 @@ gates, custom TRACE (level 5) the fetch/decode path (spec §18.3).
 | `pdp11/memory/` | RAM, ROM, I/O page, map registers | RAM/ROM/IOPage done; **Unibus map (M5) + Q22-CD map (M6)** |
 | `pdp11/bus/` | BusDevice ABC; Unibus/Q-Bus/Massbus | ABC + Unibus (M2) + Q-Bus BIAK/BDMG (M4, 22-bit on 11/94 M6) + **Massbus constants done (M5)** |
 | `pdp11/devices/dl11.py` | console DL11 | done (M2); other devices stubbed to their milestones |
-| `pdp11/control/front_panel.py`, `rom_loader.py` | ODT + boot PROMs | done (M2); debugger/snapshot stubs (M7/M8) |
-| `pdp11/graphics/` | terminal interfaces | ConsoleTerminal + StdioBackend done (M2); VT100/curses M7 |
+| `pdp11/control/front_panel.py`, `rom_loader.py` | ODT + boot PROMs | done (M2); **debugger done (M7)**; snapshot stub (M8) |
+| `pdp11/control/debugger.py` | extended debugger + §14 counters + §18.3 dump | **done (M7)** |
+| `pdp11/graphics/` | terminal interfaces | ConsoleTerminal + StdioBackend (M2); **VT100/VT52 + LA36 done (M7)**; curses/pixel backends post-v1 |
 | `pdp11/main.py` | CLI + assembly + run loop | done (M2) |
 | `pdp11/devices/` | DL11…KW11-P | DL11, KW11-L, RK11/RK05 (M2/M3), DZ11, RX11 (M4), **RH70+RP06/RP07 (M5)** done; rest stubbed to their milestones |
-| `pdp11/graphics/` | terminals + render backends | stubs (M7) |
+| `pdp11/graphics/` | terminals + render backends | StdioBackend (M2); **vt100.py/la36.py frontends done (M7)**; curses/pixel post-v1 |
 | `pdp11/disk_images/` | SIMH-compatible containers | RK05/RX01 raw containers done (M3); `.tap`/`.hp` + simh_compat M8 |
-| `pdp11/control/` | ODT, debugger, snapshots, ROM loader | stubs (M2/M7/M8) |
-| `pdp11/tests/` | skeleton + golden + device/diagnostic suites | M1 tests green |
+| `pdp11/control/` | ODT, debugger, snapshots, ROM loader | ODT+ROM loader (M2), **debugger (M7)** done; snapshot M8 |
+| `pdp11/tests/` | skeleton + golden + device/diagnostic suites | 205 tests green through M7 (`test_vt100.py`, `test_la36.py`, `test_debugger.py`, `machine_diagnostics.py` §11.1 harness) |

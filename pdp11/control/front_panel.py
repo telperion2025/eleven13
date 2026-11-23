@@ -51,7 +51,12 @@ class FrontPanel:
 
 
 class ODT:
-    """Octal Debugging Technique console (§9): the `@` prompt shell."""
+    """Octal Debugging Technique console (§9): the `@` prompt shell.
+    run() is the line loop; _dispatch() handles one command line and returns
+    "go"/"quit" to leave the loop, None to continue — the M7 Debugger
+    subclasses this and intercepts its extended commands in _dispatch."""
+
+    prompt = PROMPT
 
     def __init__(self, board: SystemBoard, terminal: TerminalFrontend) -> None:
         self.board = board
@@ -84,32 +89,41 @@ class ODT:
         if self.board.profile.has_mmu:
             self._emit(f"^{self.board.cpu.state.R[Reg.PC]:06o}\r\n")
         while True:
-            self._emit(PROMPT)
+            self._emit(self.prompt)
             line = self._readline()
             if line is None:
                 return "quit"                # host input exhausted (piped stdin)
-            line = line.strip()
-            if not line:
-                self._emit(f"{self.current:06o}/ {self.board.read_word(self.current):06o}\r\n")
-                continue
-            if line in ("Q", "q"):
-                return "quit"
-            if line in ("G", "g") or line.upper().startswith("G "):
-                parts = line.split()
-                if len(parts) > 1:
-                    self.board.cpu.state.R[Reg.PC] = int(parts[1], 8) & 0o177777
-                else:
-                    self.board.cpu.state.R[Reg.PC] = self.current & 0o177777
-                return "go"
-            if line.endswith("/"):
-                addr = int(line[:-1].strip(), 8) & 0o177777   # octal only (§9)
-                self.current = addr
-                self._emit(f"{addr:06o}/ {self.board.read_word(addr):06o}\r\n")
-            elif line.endswith("\\"):
-                self.current = int(line[:-1].strip(), 8) & 0o177777
-                self._emit(PROMPT)
-                value = int(self._readline().strip() or "0", 8) & 0o177777
-                self.board.write_word(self.current, value)
-                self._emit(f"{self.current:06o}/ {value:06o}\r\n")
+            action = self._dispatch(line)
+            if action is not None:
+                return action
+
+    def _dispatch(self, line: str) -> str | None:
+        """Handle one command line; returns "go"/"quit" to leave the loop,
+        None to prompt again."""
+        line = line.strip()
+        if not line:
+            self._emit(f"{self.current:06o}/ {self.board.read_word(self.current):06o}\r\n")
+            return None
+        if line in ("Q", "q"):
+            return "quit"
+        if line in ("G", "g") or line.upper().startswith("G "):
+            parts = line.split()
+            if len(parts) > 1:
+                self.board.cpu.state.R[Reg.PC] = int(parts[1], 8) & 0o177777
             else:
-                self._emit("?\r\n")   # octal addresses only (§9)
+                self.board.cpu.state.R[Reg.PC] = self.current & 0o177777
+            return "go"
+        if line.endswith("/"):
+            addr = int(line[:-1].strip(), 8) & 0o177777   # octal only (§9)
+            self.current = addr
+            self._emit(f"{addr:06o}/ {self.board.read_word(addr):06o}\r\n")
+            return None
+        if line.endswith("\\"):
+            self.current = int(line[:-1].strip(), 8) & 0o177777
+            self._emit(self.prompt)
+            value = int(self._readline().strip() or "0", 8) & 0o177777
+            self.board.write_word(self.current, value)
+            self._emit(f"{self.current:06o}/ {value:06o}\r\n")
+            return None
+        self._emit("?\r\n")   # octal addresses only (§9)
+        return None

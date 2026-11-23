@@ -13,12 +13,16 @@ equivalent are dropped with a debug-log note, never passed through as
 multi-byte garbage.
 
 M2 implements ConsoleTerminal (a plain text terminal over a RenderBackend);
-the VT100/VT52 state machines land in M7 (vt100.py).
+M7 implements the VT100/VT52 escape-sequence terminals (vt100.py) and the
+LA36 hardcopy terminal (la36.py), all subclassing BackendTerminal.
 """
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
+
+_log = logging.getLogger(__name__)
 
 BREAK_BYTE = 0o003  # host Ctrl-C is the BREAK key (§13)
 
@@ -47,11 +51,12 @@ class TerminalFrontend(ABC):
         return False
 
 
-class ConsoleTerminal(TerminalFrontend):
-    """A plain text terminal over a RenderBackend (M2). Input bytes are
-    buffered; break_pending() consumes a BREAK byte if one is queued."""
-
-    name = "console"
+class BackendTerminal(TerminalFrontend):
+    """Shared host-input queue over a RenderBackend (M2; the M7 escape-sequence
+    terminals vt100.py/la36.py subclass it). read() is non-blocking, returns
+    7-bit bytes only — host keys with no 7-bit equivalent are dropped here
+    with a debug-log note (§8) — and break_pending() consumes a queued BREAK
+    byte. Subclasses implement write() (raw console, VT100, LA36)."""
 
     def __init__(self, backend: RenderBackend) -> None:  # noqa: F821 — typing only
         from pdp11.graphics.render_backend import RenderBackend  # local: avoid cycle
@@ -63,16 +68,15 @@ class ConsoleTerminal(TerminalFrontend):
             b = self._backend.getch()
             if b is None:
                 return
-            self._queue.append(b)
+            if b <= 0o177:
+                self._queue.append(b)
+            else:
+                _log.debug("dropped non-7-bit host key 0x%02x (§8)", b)
 
     def read(self) -> int | None:
         if not self._queue:
             self._fill()
         return self._queue.pop(0) if self._queue else None
-
-    def write(self, byte: int) -> None:
-        self._backend.putch(byte & 0o177)     # hard 7-bit mask (§8)
-        self._backend.flush()
 
     def break_pending(self) -> bool:
         if not self._queue:
@@ -84,3 +88,14 @@ class ConsoleTerminal(TerminalFrontend):
 
     def at_eof(self) -> bool:
         return not self._queue and self._backend.at_eof()
+
+
+class ConsoleTerminal(BackendTerminal):
+    """A plain text terminal over a RenderBackend (M2): output passes through
+    with a hard 7-bit mask (§8)."""
+
+    name = "console"
+
+    def write(self, byte: int) -> None:
+        self._backend.putch(byte & 0o177)     # hard 7-bit mask (§8)
+        self._backend.flush()

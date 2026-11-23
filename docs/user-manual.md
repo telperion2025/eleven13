@@ -26,12 +26,12 @@ python -m pdp11.main --machine 11/20 ...     # identical, module form
 | `--machine {11/03,11/20,11/70,11/94}` | **Required.** Selects the emulated model. There is deliberately no default (spec §4.1). | M1 |
 | `--memory OCT_WORDS` | RAM size in **octal** words, overriding the profile ceiling. | M1 (parsed) |
 | `--disk IMAGE` | Attach a disk image; format auto-detected from file size per spec §16 (repeatable). Dispatched by container: RK05-sized → RK11 at 177400, RX01-sized → RX11 at 177170, RP06/RP07-sized (512-byte sectors) → RH70 at 176700 on the 11/70 (Massbus). | M3/M4/M5 |
-| `--console {vt100,vt52,la36,odt}` | Terminal frontend (default `vt100`). | M2/M7 |
+| `--console {vt100,vt52,la36,odt}` | Terminal frontend (default `vt100`): a real VT100/VT52 escape-sequence state machine, or the LA36 hardcopy; `odt` is the plain text console. | M7 |
 | `--bootrom FILE` | Load an M9312 512-word boot PROM image (spec §13). Without it, a simplified built-in bootstrap is used — documented as **non-authentic**. | M2/M3 |
 | `--config FILE.json` | Per-run overrides (memory size, devices, volumes) layered over the profile; see `pdp11/config/config.json` for the schema example. | M2+ |
 | `--throttle` | Slow execution to real-machine speed. Default is full speed (`--maxspeed` stance, spec §14). Throttling lives only in `main.py`, never in the machine core. | M2+ |
 | `--maxspeed` | Explicit no-throttle (default behavior). | M2+ |
-| `--debug` | Extended debugger when the machine halts (spec §9). | M7 |
+| `--debug` | Extended debugger: supervises RUN (breakpoints/watchpoints) and owns the HALT shell (spec §9). | M7 |
 | `--save FILE` / `--restore FILE` | Session snapshot save/restore (spec §15). | M8 |
 | `--powerfail` / `--powerrestore` | Inject the power-fail / power-restore sequence through vector 000024 so OS shutdown/restart code paths are testable (spec §5.5, §11.9). | M8 |
 
@@ -55,9 +55,20 @@ eleven13 --machine 11/70 --disk rp06.dsk
 eleven13 --machine 11/94 --disk rt11.rx01
 ```
 
+### M7: terminal frontends and the debugger
+
+`--console` selects the virtual terminal the DL11 console talks to (spec §8):
+`vt100` (default — a real VT100 state machine: CSI cursor/erase sequences,
+24-line scroll, ANSI/VT52 mode switching), `vt52` (the reduced VT52 variant),
+`la36` (a DECwriter hardcopy: output is buffered line-by-line and printed on
+LF/FF, not shown on a screen), or `odt` (plain text console). All are strictly
+7-bit ASCII devices; host keys with no 7-bit equivalent are dropped with a
+debug-log note (§8). `--debug` turns the HALT shell into the extended
+debugger and supervises RUN with breakpoints/watchpoints (see §4).
+
 ## 3. Running a machine and the console
 
-Once M2 lands, the flow is:
+The flow is:
 
 1. `eleven13 --machine 11/03 --disk rk0.img` assembles the machine from the
    profile and starts at the profile's power-on PC (spec §13).
@@ -67,16 +78,33 @@ Once M2 lands, the flow is:
    ASCII device — host keys with no 7-bit equivalent are dropped with a
    debug-log note, never passed through as multi-byte garbage (spec §8).
 3. On HALT (or BREAK), control falls to **ODT** — the `@` prompt: `/`
-   examine, `\` deposit, `G` go, octal addresses only (spec §9).
+   examine, `\` deposit, `G` go, octal addresses only (spec §9) — or to the
+   extended debugger with `--debug`.
 
 ## 4. Debugger (`--debug`, M7)
 
-Breakpoints, watchpoints, MMU page dumps, interrupt-pending display,
-single-step trace with disassembly, device statistics, container inspection —
-plus the performance instrumentation of spec §14 (instructions/second,
-per-module cycle costs, function-level timing dumps). Emulator bugs
-(`EmulationError`, spec §18.3) print a pasteable crash dump: registers, PC,
-last 8 dispatched opcodes, clock cycle.
+The debugger is an ODT superset under the `dbg>` prompt (all addresses octal):
+
+| Command | Action |
+|---|---|
+| `<oct>/`, `<oct>\`, `G [oct]`, `Q` | ODT examine / deposit / go / quit (§9) |
+| `b [oct]` | toggle a PC breakpoint / list breakpoints |
+| `w [oct]` | toggle a word-address watchpoint / list watchpoints |
+| `s [n]` | single-step n instructions with disassembly |
+| `r` | register + PSW dump |
+| `m` | MMU page dump (6 APR sets + MMR0-3) on 11/70, 11/94 |
+| `i` | interrupt-pending display (per device + arbiter grant vs PSW IPL) |
+| `d` | device statistics (name/base/window/DMA/interrupt/drive counters) |
+| `c` | container inspection (attached disk images) |
+| `p` | performance counters (§14: instructions, bus cycles, per-opcode-group costs) |
+| `?` | help |
+
+Breakpoints and watchpoints also fire during RUN (the debugger supervises
+each instruction). Performance counters are pure counts inside the emulator;
+instructions/second is computed at the `main.py` boundary, the only place
+wall-clock is allowed next to the render backend (§19.6). Emulator bugs
+(`EmulationError`, spec §18.3) print a pasteable crash dump — registers, PC,
+last 8 dispatched opcodes, clock cycle — and exit 1.
 
 ## 5. Snapshots (`--save` / `--restore`, M8)
 

@@ -17,6 +17,7 @@ bucket decoded by masked patterns, exactly the hardware's two-level decode.
 
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Callable
 from typing import NamedTuple, Protocol
 
@@ -213,6 +214,8 @@ class CPU:
         self.devices: list[BusDevice] = []           # injected: bus-ordered device list
         self.last_op_word: int = 0                   # opcode of the current/last instruction
         self.last_instr_addr: int = 0                # its address (FP-exception FEA, §5.8)
+        # ring of the last 8 dispatched opcodes — the §18.3 crash dump prints these
+        self.op_trace: deque[int] = deque(maxlen=8)
         # dispatch buckets: opcode nibble -> masked entries, most specific first
         buckets: dict[int, list[OpEntry]] = {}
         for entry in _REGISTRY:
@@ -269,6 +272,7 @@ class CPU:
             try:
                 op_word = self.fetch_word()   # increments PC by 2, per handbook
                 self.last_op_word = op_word   # handlers decode byte/group from it
+                self.op_trace.append(op_word)  # §18.3 crash-dump trace
                 entry = self._lookup(op_word)
                 if entry is None:
                     # Reserved opcode -> trap through 000010. The KD11-B
