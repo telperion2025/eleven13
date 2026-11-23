@@ -93,8 +93,7 @@ def test_open_disk_image_sniffs_format_by_size(tmp_path):
     assert open_disk_image(str(rk)).sector_size == RK05_SECTOR
     rx = tmp_path / "b.rx01"
     rx.write_bytes(bytes(RX01_SECTOR * RX01_SECTORS))
-    with pytest.raises(ValueError, match="RX11"):
-        open_disk_image(str(rx))                        # RX01 until M4 (§11.2)
+    assert open_disk_image(str(rx)).sector_size == RX01_SECTOR   # M4: RX11 binds it
     odd = tmp_path / "c.bin"
     odd.write_bytes(b"\x00" * 1234)
     with pytest.raises(ValueError, match="no supported container"):

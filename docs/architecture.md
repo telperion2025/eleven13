@@ -84,7 +84,8 @@ Three layers, never mixed:
 
 1. `BusInit` — hardware signaling inside devices/bus (e.g. Unibus timeout);
    caught only by the machine layer (CPU core), routed to vector 000004
-   (Unibus model) — the LSI-11/DCJ-11 quirk sets are M4/M6 and raise
+   (Unibus model); M4 lands the LSI-11 quirk (odd word access splits into
+   byte transfers, nonexistent memory still traps) — DCJ-11 strict is M6 and raises
    `NotImplementedError` until then (spec §19.10).
 2. `EmulationError` (`pdp11/errors.py`) — emulator bugs (broken invariants);
    crash loudly with a state dump, never swallowed.
@@ -109,12 +110,12 @@ gates, custom TRACE (level 5) the fetch/decode path (spec §18.3).
 | `pdp11/cpu/traps.py`, `interrupts.py` | vectors, IPL logic | done (flat mode) |
 | `pdp11/cpu/mmu.py`, `cpu/fp11.py` | MMU, FP11 engine | stubs (M5/M6) |
 | `pdp11/memory/` | RAM, ROM, I/O page, map registers | RAM/ROM/IOPage done; maps stub |
-| `pdp11/bus/` | BusDevice ABC; Unibus/Q-Bus/Massbus | ABC + Unibus done (M2); Q-Bus/Massbus stubs (M4/M6, M5) |
+| `pdp11/bus/` | BusDevice ABC; Unibus/Q-Bus/Massbus | ABC + Unibus (M2) + Q-Bus BIAK/BDMG (M4) done; Massbus stub (M5) |
 | `pdp11/devices/dl11.py` | console DL11 | done (M2); other devices stubbed to their milestones |
 | `pdp11/control/front_panel.py`, `rom_loader.py` | ODT + boot PROMs | done (M2); debugger/snapshot stubs (M7/M8) |
 | `pdp11/graphics/` | terminal interfaces | ConsoleTerminal + StdioBackend done (M2); VT100/curses M7 |
 | `pdp11/main.py` | CLI + assembly + run loop | done (M2) |
-| `pdp11/devices/` | DL11…KW11-P | DL11, KW11-L, RK11/RK05 done (M2/M3); rest stubbed to their milestones |
+| `pdp11/devices/` | DL11…KW11-P | DL11, KW11-L, RK11/RK05 (M2/M3), DZ11, RX11 (M4) done; rest stubbed to their milestones |
 | `pdp11/graphics/` | terminals + render backends | stubs (M7) |
 | `pdp11/disk_images/` | SIMH-compatible containers | RK05/RX01 raw containers done (M3); `.tap`/`.hp` + simh_compat M8 |
 | `pdp11/control/` | ODT, debugger, snapshots, ROM loader | stubs (M2/M7/M8) |

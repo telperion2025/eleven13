@@ -25,7 +25,7 @@ python -m pdp11.main --machine 11/20 ...     # identical, module form
 |---|---|---|
 | `--machine {11/03,11/20,11/70,11/94}` | **Required.** Selects the emulated model. There is deliberately no default (spec §4.1). | M1 |
 | `--memory OCT_WORDS` | RAM size in **octal** words, overriding the profile ceiling. | M1 (parsed) |
-| `--disk IMAGE` | Attach a disk image; format auto-detected from file size per spec §16 (repeatable). M3 binds it to the RK11/RK05 at 177400; RX01 containers attach with the RX11 driver in M4. | M3 (RK05) |
+| `--disk IMAGE` | Attach a disk image; format auto-detected from file size per spec §16 (repeatable). Dispatched by container: RK05-sized → RK11 at 177400, RX01-sized → RX11 at 177170. | M3/M4 |
 | `--console {vt100,vt52,la36,odt}` | Terminal frontend (default `vt100`). | M2/M7 |
 | `--bootrom FILE` | Load an M9312 512-word boot PROM image (spec §13). Without it, a simplified built-in bootstrap is used — documented as **non-authentic**. | M2/M3 |
 | `--config FILE.json` | Per-run overrides (memory size, devices, volumes) layered over the profile; see `pdp11/config/config.json` for the schema example. | M2+ |

@@ -96,7 +96,8 @@ PROFILES: dict[str, MachineProfile] = {
         bus_error_model=BusErrorModel.LSI11_TOLERANT,
         power_on_pc=0o173000,                             # boot ROM search (§13)
         iopage_base=0o177600,
-        default_devices=("dl11_console", "kw11l", "rx11", "rk11_rk05"),
+        # M4 adds "dz11" (§7 P1 for 03/70/94; §12 M4) — see docs/acceptance-checklist.md
+        default_devices=("dl11_console", "kw11l", "dz11", "rx11", "rk11_rk05"),
     ),
     # --- PDP-11/70: Unibus + Massbus, 22-bit, 3-mode MMU, FP11 -----------
     "11/70": MachineProfile(

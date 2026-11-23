@@ -98,7 +98,7 @@ cpu/ bus/ ≥ 90 %, devices ≥ 70 %; a determinism job replays a scripted
 | M1 | Skeleton + 11/20 BASE CPU on flat memory (§17 scaffolding) | **done** — see docs/acceptance-checklist.md |
 | M2 | Unibus + I/O page + DL11 console + ODT shell | **done** — `bus/unibus.py`, `devices/dl11.py`, `control/front_panel.py` (ODT), `control/rom_loader.py`, `main.py` run loop; 53 tests green |
 | M3 | KW11-L + RK05/RK11 + containers; RT-11 boots on 11/20 | KW11-L (`devices/kw11l.py`), RK11/RK05 reference driver (`devices/rk11_rk05.py`), raw containers (`disk_images/container.py`), `--disk` wiring in `main.py` — **done**, 72 tests green; the real RT-11 image boot (§11.3) awaits an operator-supplied image (§22.1) — the boot path itself is verified end-to-end with a hand-built boot block (`test_console.py::test_rk05_boot_block_end_to_end`) |
-| M4 | 11/03 Q-Bus + EIS (KEF11); DZ11 | stubbed |
+| M4 | 11/03 Q-Bus + EIS (KEF11); DZ11 | **done** — `bus/qbus.py` (BIAK/BDMG), `devices/dz11.py` (160100, vec 300/304), `devices/rx11.py` (177170, vec 264/BR5), EIS MUL/DIV/ASH/ASHC/XOR/SOB in `cpu/instructions/eis.py`, LSI11_TOLERANT odd-word quirk in `board.py`; 102 tests green; RX11 e2e boot-sector test in `test_console.py` |
 | M5 | 11/70: MMU, Unibus map, Massbus RH70+RP06, FP11 | stubbed |
 | M6 | 11/94: DCJ-11, CIS, 22-bit Q-Bus map, FPJ | stubbed |
 | M7 | VT100/LA36 frontends, debugger polish, diagnostic pass rates | stubbed |

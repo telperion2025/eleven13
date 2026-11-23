@@ -5,7 +5,7 @@ Version 1 is complete when all eleven criteria pass. Status after M3:
 | # | Criterion (spec §11) | Status |
 |---|---|---|
 | 1 | All four profiles assemble, enter ODT, run MAINDEC CPU diagnostics to a pass/fail report | profiles assemble, boot ROM path + ODT shell **done in M2** (`test_console.py`: 11/03 built-in bootstrap prints via DL11 and HALTs to ODT; 11/20 HALTs at 000000 into ODT); MAINDEC runs land M8 (`tests/machine_diagnostics.py`) |
-| 2 | RT-11 boots from an RX01 image on 11/03 and 11/94 | M3/M4 (RX11 driver + container) |
+| 2 | RT-11 boots from an RX01 image on 11/03 and 11/94 | RX11 driver + RX01 container **done in M4**; the boot path (ready poll → READ via RXDB/TR handshake → BR5/264 interrupt → EMPTY 128 bytes to RAM) is verified end-to-end on the 11/03 (`test_console.py::test_rx01_boot_sector_end_to_end`). A *real* RT-11 RX01 image awaits the operator (§22.1); 11/94 profile lands M6 |
 | 3 | RT-11 boots from an RK05 image on 11/20 | RK11/RK05 driver + containers **done in M3**; the full boot path (I/O-page CSR writes → NPR word-at-a-time DMA → BR5/vector-220 completion interrupt) is verified end-to-end with a hand-built boot block (`test_console.py::test_rk05_boot_block_end_to_end`). Booting a *real* RT-11 image awaits an operator-supplied container (§22.1 — no image is fabricated) |
 | 4 | RSTS/E or RSX-11M boots on 11/70 from an RP06 (RH70/Massbus), MMU across kernel/supervisor/user | M5 |
 | 5 | 11/20 no-ops microcoded-only instructions rather than executing them | **done at CPU level** — `test_1120_noops_microcoded_only_opcodes` + `test_eis_raises_notimplemented_on_eis_fitted_machine` (capability gate, spec §5.4); MAINDEC CK41 cross-check per §22.5 R1 |
@@ -14,7 +14,7 @@ Version 1 is complete when all eleven criteria pass. Status after M3:
 | 8 | Mid-boot snapshot restores byte-identically and continues identically | M8 (snapshot.py; device serialize contract already in place) |
 | 9 | Power-fail/restore (vector 000024) exercised with orderly shutdown + auto-restart | M8 (`--powerfail`/`--powerrestore`) |
 | 10 | Every container format (incl. SIMH `.tap`) round-trips a SIMH-created image | RK05/RX01 raw containers round-trip byte-exactly **done in M3** (`test_containers.py`, incl. format sniffing by file size); `.tap` magtape and `.hp` headers land M8 with tm11/rh70, and the SIMH cross-read test is the M8 gate |
-| 11 | Per-machine bus-error semantics diverge correctly (Unibus timeout vs LSI-11 tolerant vs DCJ-11 strict) | 11/20 Unibus timeout **done** (`test_bus_error_odd_word_traps_to_000004`, `test_nonexistent_memory_traps_to_000004`); LSI11_TOLERANT/DCJ11_STRICT are M4/M6 stubs by design (§19.10) |
+| 11 | Per-machine bus-error semantics diverge correctly (Unibus timeout vs LSI-11 tolerant vs DCJ-11 strict) | 11/20 Unibus timeout **done**; 11/03 LSI11_TOLERANT **done in M4**: odd-address word access splits into two byte transfers (no trap), nonexistent memory traps cleanly through vector 000004 (`test_qbus.py`) — the backplane-dependent nonexistent-memory variants are flagged §22.1; DCJ11_STRICT remains an M6 stub by design (§19.10) |
 
 ## M1 definition of done (spec §22.2) — all met
 
@@ -69,3 +69,25 @@ Version 1 is complete when all eleven criteria pass. Status after M3:
    RT-11 container, which is not fabricated here (§22.1): the milestone's
    boot *path* is proven with a hand-built boot block; supplying the image
    is with the operator (Andrew, who has SIMH images).
+9. M4 added `"dz11"` to the 11/03 profile's `default_devices` (§17.2 table
+   lists it only implicitly via §7 P1 "03, 70, 94" + §12 M4) — recorded
+   here as a deliberate, documented extension of the starter profile.
+10. DZ11/RX11 register bit layouts are cross-checked against SIMH
+    (pdp11_dz.c, pdp11_rx.c) rather than guessed: DZ11 at 160100 with
+    CSR/RBUF-LPR/TCR/MSR-TDR, RX vector 000300 / TX 000304, BR5 on Unibus
+    and BIRQ4 on Q-Bus; RX11 at 177170 with RXCS/RXDB, functions in bits
+    3-1 (FILL/EMPTY/WRITE/READ/RXES/WRDEL/ECODE), DONE bit 5, TR bit 7,
+    vector 000264 at BR5, RX01 sectors numbered 1-26. Remaining flagged
+    corners (§22.4): DZ11 silo-alarm edge behavior, modem status bits,
+    RX11 timing constants (SIMH's cwait/swait/xwait in bus cycles).
+11. EIS condition codes (MUL/DIV/ASH/ASHC/XOR/SOB) follow the Processor
+    Handbook as cross-checked against SIMH pdp11_cpu.c: MUL C = signed
+    product outside 16 bits; DIV V on div-by-zero / -2^31÷-1 / quotient
+    overflow, C only on div-by-zero, pair unchanged on error; ASH V =
+    shifted-out bits differ from result sign, right shifts never overflow;
+    register pairs hold the HIGH word in the lower register, odd register
+    stores low word only. PRNG-seeded cross-check in `test_eis.py`.
+12. LSI11_TOLERANT (§5.5) is implemented as: odd-address word access →
+    split byte pair; nonexistent memory → clean Q-Bus timeout (vector
+    000004). The spec's "depends on backplane configuration" variants are
+    NOT settled by the spec text — flagged §22.1 for Andrew/SIMH.

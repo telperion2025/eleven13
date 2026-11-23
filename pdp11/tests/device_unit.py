@@ -24,9 +24,9 @@ import pytest
 from pdp11.board import SystemBoard
 from pdp11.bus.abstract_bus import BusDevice
 from pdp11.config.profiles import PROFILES
-from pdp11.devices import kw11l, rk11_rk05
+from pdp11.devices import dz11, kw11l, rk11_rk05, rx11
 from pdp11.devices.dl11 import BR_LEVEL, DL11, DONE, IE, VECTOR_RX, VECTOR_TX
-from pdp11.disk_images.container import RK05_SECTOR, open_rk05, rk05_sector_address
+from pdp11.disk_images.container import RK05_SECTOR, open_rk05, open_rx01, rk05_sector_address
 from pdp11.graphics.render_backend import RenderBackend
 from pdp11.graphics.terminal import ConsoleTerminal
 from pdp11.system_clock import SystemClock
@@ -344,3 +344,159 @@ def test_rk11_serialize_roundtrip(tmp_path):
     assert rk2.rkcs & rk11_rk05.RKCS_DONE
     with pytest.raises(ValueError):
         rk2.deserialize({"rkcs": 0})                       # schema mismatch
+
+
+# -- M4: DZ11 8-line multiplexer (SIMH pdp11_dz.c model; vectors 300/304) --------
+
+
+def make_dz11(input_bytes: bytes = b"", br_level: int = dz11.BR_LEVEL_QBUS):
+    clock = SystemClock()
+    backend = FakeBackend(input_bytes)
+    term = ConsoleTerminal(backend)
+    return dz11.DZ11(clock, term, br_level=br_level), clock, backend
+
+
+def test_dz11_reset_and_csr():
+    dz, _clock, _b = make_dz11()
+    assert dz.window_size == 0o10 and isinstance(dz, BusDevice)
+    assert dz.read_word(0) & dz11.CSR_TRDY                  # transmitter ready at reset
+    assert dz.interrupt_pending() is None
+    dz.write_word(0, dz11.CSR_MSE | dz11.CSR_RIE | dz11.CSR_TIE)
+    assert dz.read_word(0) & (dz11.CSR_MSE | dz11.CSR_RIE | dz11.CSR_TIE)
+    assert dz.read_word(0) & dz11.CSR_TRDY                  # still ready
+
+
+def test_dz11_receive_path_and_rx_vector():
+    dz, clock, _b = make_dz11(b"A")
+    dz.write_word(0, dz11.CSR_MSE | dz11.CSR_RIE)           # scan on, rx int enb
+    drain(clock, dz11.INPUT_POLL_CYCLES + 1)                # one scan tick
+    assert dz.read_word(0) & dz11.CSR_RDONE                 # char in silo
+    assert dz.interrupt_pending() == (dz11.VECTOR_RX, dz11.BR_LEVEL_QBUS)   # 0o300 BIRQ4
+    word = dz.read_word(2)                                  # RBUF: pop silo
+    assert word & dz11.RBUF_CHAR == ord("A")
+    assert word & dz11.RBUF_VALID
+    assert dz.read_word(0) & dz11.CSR_RDONE == 0            # silo empty -> RDONE clear
+    assert dz.interrupt_pending() is None
+
+
+def test_dz11_transmit_path_and_tx_vector():
+    dz, clock, backend = make_dz11()
+    dz.write_word(0, dz11.CSR_MSE | dz11.CSR_TIE)           # scan on, tx int enb, line 0
+    assert dz.read_word(0) & dz11.CSR_TRDY
+    dz.write_word(6, ord("Z"))                              # TDR <- 'Z' on line 0
+    assert dz.read_word(0) & dz11.CSR_TRDY == 0             # busy while transmitting
+    assert dz.interrupt_pending() is None
+    drain(clock, dz11.TX_CYCLES + 1)
+    assert backend.output == [ord("Z")]                    # emitted on line 0
+    assert dz.read_word(0) & dz11.CSR_TRDY
+    assert dz.interrupt_pending() == (dz11.VECTOR_TX, dz11.BR_LEVEL_QBUS)   # 0o304
+
+
+def test_dz11_byte_access_and_serialize():
+    dz, clock, backend = make_dz11()
+    dz.write_word(0, dz11.CSR_MSE | dz11.CSR_TIE)
+    dz.write_byte(6, ord("Q"))                              # TDR via byte write
+    drain(clock, dz11.TX_CYCLES + 1)
+    assert backend.output == [ord("Q")]
+    state: dict[str, Any] = dz.serialize()
+    dz2, _c2, _b2 = make_dz11()
+    dz2.deserialize(state)
+    assert dz2.tcr == dz.tcr and dz2.csr & dz11.CSR_TRDY
+    with pytest.raises(ValueError):
+        dz2.deserialize({"csr": 0})
+
+
+# -- M4: RX11/RX01 floppy (SIMH pdp11_rx.c model; vector 264 BR5) -----------------
+
+
+def make_rx11(tmp_path, image=None) -> tuple[rx11.RX11, SystemClock]:
+    clock = SystemClock()
+    if image is None:
+        image = open_rx01(str(tmp_path / "floppy.rx01"))
+    return rx11.RX11(clock, image), clock
+
+
+def test_rx11_init_sets_done_and_drdy(tmp_path):
+    rx, clock = make_rx11(tmp_path)
+    assert rx.window_size == 0o04
+    drain(clock, rx11.SEEK_PER_TRACK + 1)                   # implicit init completes
+    assert rx.read_word(0) & rx11.RXCS_DONE
+    assert not rx.read_word(0) & rx11.RXCS_ERR
+    assert rx.esr & rx11.RXES_DRDY and rx.esr & rx11.RXES_ID
+    assert rx.interrupt_pending() is None                   # IE clear
+
+
+def test_rx11_read_sector_via_tr_handshake(tmp_path):
+    """The RT-11 RX boot path shape (§11.2): READ sector, then EMPTY the
+    buffer byte-at-a-time through RXDB with the TR handshake."""
+    image_sector = bytes((i * 3) & 0xFF for i in range(rx11.SECTOR_BYTES))
+    rx, clock = make_rx11(tmp_path)
+    rx.image.write_sector(0, image_sector)                  # track 0, sector 1
+    rx.image.flush()
+    drain(clock, rx11.SEEK_PER_TRACK + 1)                   # finish init
+    rx.write_word(0, (rx11.FCT_READ << 1) | rx11.RXCS_IE | rx11.RXCS_GO)   # 0o107
+    assert rx.read_word(0) & rx11.RXCS_TR                   # TR set for sector
+    rx.write_word(2, 1)                                     # RXDB <- sector 1
+    drain(clock, rx11.TR_CYCLES + 1)                        # RWDS svc -> TR
+    assert rx.read_word(0) & rx11.RXCS_TR
+    rx.write_word(2, 0)                                     # RXDB <- track 0
+    drain(clock, rx11.TR_CYCLES + 1)                        # RWDT svc -> schedules seek
+    drain(clock, rx11.SEEK_PER_TRACK + rx11.CMD_CYCLES + 2)  # RWXFR svc -> DONE
+    assert rx.read_word(0) & rx11.RXCS_DONE                 # sector in buffer
+    assert rx.interrupt_pending() == (rx11.VECTOR, rx11.BR_LEVEL)         # 0o264 BR5
+    # empty the buffer into a list
+    rx.write_word(0, (rx11.FCT_EMPTY << 1) | rx11.RXCS_GO)  # EMPTY|GO
+    got = bytearray()
+    for _ in range(rx11.SECTOR_BYTES):
+        while not rx.read_word(0) & rx11.RXCS_TR:
+            drain(clock, rx11.TR_CYCLES + 1)
+        got.append(rx.read_word(2) & 0xFF)
+        drain(clock, rx11.TR_CYCLES + 1)
+    assert bytes(got) == image_sector
+
+
+def test_rx11_write_sector_roundtrips_to_container(tmp_path):
+    rx, clock = make_rx11(tmp_path)
+    drain(clock, rx11.SEEK_PER_TRACK + 1)
+    payload = bytes((0x80 + i) & 0xFF for i in range(rx11.SECTOR_BYTES))
+    rx.write_word(0, (rx11.FCT_FILL << 1) | rx11.RXCS_GO)   # FILL
+    for _i, b in enumerate(payload):
+        assert rx.read_word(0) & rx11.RXCS_TR
+        rx.write_word(2, b)
+        drain(clock, rx11.TR_CYCLES + 1)
+    rx.write_word(0, (rx11.FCT_WRITE << 1) | rx11.RXCS_GO)  # WRITE, TR for sector
+    assert rx.read_word(0) & rx11.RXCS_TR
+    rx.write_word(2, 5)                                     # sector 5
+    drain(clock, rx11.TR_CYCLES + 1)                        # RWDS svc
+    assert rx.read_word(0) & rx11.RXCS_TR
+    rx.write_word(2, 2)                                     # track 2
+    drain(clock, rx11.TR_CYCLES + 1)                        # RWDT svc -> seek
+    drain(clock, rx11.SEEK_PER_TRACK + rx11.CMD_CYCLES + 2)
+    assert rx.read_word(0) & rx11.RXCS_DONE
+    assert rx.image.read_sector(2 * 26 + 4) == payload      # track 2 sector 5 -> idx 2*26+4
+
+
+def test_rx11_errors_and_serialize(tmp_path):
+    # no diskette: reset -> error 0o10
+    clock = SystemClock()
+    rx = rx11.RX11(clock, None)
+    assert rx.read_word(0) & rx11.RXCS_ERR
+    assert rx.ecode == rx11.ECODE_NO_DISK
+    # bad sector number
+    rx2, clock2 = make_rx11(tmp_path)
+    drain(clock2, rx11.SEEK_PER_TRACK + 1)
+    rx2.write_word(0, (rx11.FCT_READ << 1) | rx11.RXCS_GO)
+    rx2.write_word(2, 0)                                    # sector 0 invalid (1-26)
+    drain(clock2, rx11.TR_CYCLES + 1)                       # RWDS svc
+    rx2.write_word(2, 0)                                    # track 0
+    drain(clock2, rx11.TR_CYCLES + 1)                       # RWDT svc
+    drain(clock2, rx11.SEEK_PER_TRACK + rx11.CMD_CYCLES + 2)  # RWXFR -> error
+    assert rx2.read_word(0) & rx11.RXCS_ERR
+    assert rx2.ecode == rx11.ECODE_BAD_SECTOR
+    # serialize round-trip
+    state: dict[str, Any] = rx2.serialize()
+    rx3, _c3 = make_rx11(tmp_path)
+    rx3.deserialize(state)
+    assert rx3.ecode == rx11.ECODE_BAD_SECTOR and rx3.csr == rx2.csr
+    with pytest.raises(ValueError):
+        rx3.deserialize({"csr": 0})

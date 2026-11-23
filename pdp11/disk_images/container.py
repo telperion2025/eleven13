@@ -103,8 +103,8 @@ def rk05_sector_address(cylinder: int, surface: int, sector: int) -> int:
 def open_disk_image(path: str) -> RawDiskImage:
     """Open a disk container, detecting the format from the file size (§16)
     and reading it losslessly. A missing file becomes a blank RK05 pack
-    (the M3 boot disk). RX01 containers are detected and rejected with a
-    clear message until the RX11 driver lands (M4, §11.2)."""
+    (the boot disk). M4: main.py dispatches RK05-sized containers to the
+    RK11 and RX01-sized ones to the RX11 (§11.2)."""
     if not os.path.exists(path):
         _log.info("container %s not found — creating a blank RK05 pack", path)
         return open_rk05(path)
@@ -112,9 +112,7 @@ def open_disk_image(path: str) -> RawDiskImage:
     if size == RK05_SECTOR * RK05_SECTORS:
         return open_rk05(path)
     if size == RX01_SECTOR * RX01_SECTORS:
-        raise ValueError(
-            f"{path}: RX01 container — the RX11 driver lands with M4 (§11.2); "
-            "M3 binds --disk to RK05/RK11")
+        return open_rx01(path)
     raise ValueError(
         f"{path}: {size} bytes matches no supported container format (§16: "
         f"RK05={RK05_SECTOR * RK05_SECTORS}, RX01={RX01_SECTOR * RX01_SECTORS})")

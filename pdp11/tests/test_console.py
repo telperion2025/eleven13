@@ -136,7 +136,7 @@ def test_assemble_attaches_m3_devices(tmp_path):
     args = build_arg_parser().parse_args(["--machine", "11/03", "--disk", img])
     board = assemble(args, ConsoleTerminal(FakeBackend()))
     names = [d.name for d in board.devices]
-    assert names == ["DL11", "KW11L", "RK11"]           # rx11 still stubbed (M4)
+    assert names == ["DL11", "KW11L", "DZ11", "RX11", "RK11"]   # M4 devices landed
     rk = board.devices[-1]
     assert rk.base == 0o177400 and rk.drive.loaded      # type: ignore[attr-defined]
     assert board.read_word(0o177404) & 0o200            # RKCS DONE at reset
@@ -202,3 +202,83 @@ def test_rk05_boot_block_end_to_end(tmp_path):
         assert board.ram.read_word(0o4000 + 2 * i) == w
     assert board.ram.read_word(0o2000) == 1          # vector-220 handler ran
     assert board.clock.cycle >= 256                  # 256 stolen DMA cycles charged
+
+
+# -- M4: 11/03 Q-Bus assembly + RX01 boot path (§11.2/§12) -------------------------
+
+
+def test_assemble_1103_qbus_devices(tmp_path):
+    """11/03: Q-Bus arbiter on the board, DZ11 at 160100 (BIRQ4 on Q-Bus),
+    RX11 at 177170 bound to an RX01 --disk image, RK11 at 177400 (no pack)."""
+    from pdp11.disk_images.container import open_rx01
+    img = str(tmp_path / "rt11.rx01")
+    open_rx01(img).flush()
+    args = build_arg_parser().parse_args(["--machine", "11/03", "--disk", img])
+    board = assemble(args, ConsoleTerminal(FakeBackend()))
+    assert board.qbus is not None and board.unibus is None
+    assert board.qbus.addr_mask == 0o777777              # 18-bit physical
+    names = [d.name for d in board.devices]
+    assert names == ["DL11", "KW11L", "DZ11", "RX11", "RK11"]
+    dz = next(d for d in board.devices if d.name == "DZ11")
+    rx = next(d for d in board.devices if d.name == "RX11")
+    assert dz.br_level == 4 and dz.base == 0o160100     # type: ignore[attr-defined]
+    assert rx.base == 0o177170 and rx.image is not None  # type: ignore[attr-defined]
+    assert board.read_word(0o160100) & 0o100000         # DZCSR TRDY at reset
+    assert board.read_word(0o177170) == 0                # RXCS clear before init tick
+
+
+def test_rx01_boot_sector_end_to_end(tmp_path):
+    """M4 end-to-end on the 11/03 (§11.2 path shape): a hand-assembled
+    program reads RX01 track 0 sector 1 through the RX11 TR handshake into
+    RAM at 0o4000, with the BR5/vector-264 completion interrupt taken and
+    handled, then HALTs. (A real RT-11 image boot awaits the operator's
+    image per §22.1.)"""
+    from pdp11.devices.rx11 import SECTOR_BYTES
+    from pdp11.disk_images.container import open_rx01
+    img_path = str(tmp_path / "boot.rx01")
+    image = open_rx01(img_path)
+    sector = bytes((i * 3) & 0xFF for i in range(SECTOR_BYTES))
+    image.write_sector(0, sector)                        # track 0, sector 1
+    image.flush()
+
+    args = build_arg_parser().parse_args(["--machine", "11/03", "--disk", img_path])
+    board = assemble(args, ConsoleTerminal(FakeBackend()))
+    program = {
+        0o1000: [0o032737, 0o000040, 0o177170],  # w0: BIT #DONE,@#RXCS (wait ready)
+        0o1006: [0o001774],                      # BEQ w0
+        0o1010: [0o012737, 0o000107, 0o177170],  # MOV #READ|IE|GO,@#RXCS
+        0o1016: [0o032737, 0o000200, 0o177170],  # p1: BIT #TR,@#RXCS
+        0o1024: [0o001774],                      # BEQ p1
+        0o1026: [0o012737, 0o000001, 0o177172],  # MOV #1,@#RXDB (sector 1)
+        0o1034: [0o032737, 0o000200, 0o177170],  # p2: BIT #TR,@#RXCS
+        0o1042: [0o001774],                      # BEQ p2
+        0o1044: [0o012737, 0o000000, 0o177172],  # MOV #0,@#RXDB (track 0)
+        0o1052: [0o032737, 0o000040, 0o177170],  # p3: BIT #DONE,@#RXCS
+        0o1060: [0o001774],                      # BEQ p3
+        0o1062: [0o012737, 0o000003, 0o177170],  # MOV #EMPTY|GO,@#RXCS
+        0o1070: [0o012700, 0o004000],            # MOV #0o4000,R0
+        0o1074: [0o012701, 0o000200],            # MOV #128,R1
+        0o1100: [0o032737, 0o000200, 0o177170],  # p4: BIT #TR,@#RXCS
+        0o1106: [0o001774],                      # BEQ p4
+        0o1110: [0o113720, 0o177172],            # MOVB @#RXDB,(R0)+
+        0o1114: [0o005301],                      # DEC R1
+        0o1116: [0o001370],                      # BNE p4
+        0o1120: [0o000000],                      # HALT
+        0o1200: [0o012737, 0o000006, 0o177170],  # handler: MOV #READ,@#RXCS (IE off)
+        0o1206: [0o000002],                      # RTI
+        0o0264: [0o001200],                      # vector 264 -> 0o1200
+        0o0266: [0o000240],                      #   new PSW: IPL 5
+    }
+    for addr, ws in program.items():
+        for i, w in enumerate(ws):
+            board.ram.write_word(addr + 2 * i, w)
+    cpu = board.cpu
+    cpu.state.R[Reg.SP] = 0o17776
+    cpu.state.R[Reg.PC] = 0o1000
+    steps = 0
+    while not cpu.state.halted and steps < 20000:
+        cpu.step()
+        steps += 1
+    assert cpu.state.halted, "program did not reach HALT"
+    got = bytes(board.ram.read_byte(0o4000 + i) for i in range(SECTOR_BYTES))
+    assert got == sector                              # track 0 sector 1 landed in RAM

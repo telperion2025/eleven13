@@ -11,8 +11,10 @@ In M5/M6 this same class becomes the MMU-mapped 22-bit MemoryInterface
 
 Bus-error behavior is profile-driven (§5.5): the UNIBUS_TIMEOUT model
 (odd-address word access, nonexistent memory, unassigned I/O window) raises
-BusInit, which the CPU core routes to vector 000004. The LSI11_TOLERANT and
-DCJ11_STRICT quirk sets are M4/M6 work and raise NotImplementedError here
+BusInit, which the CPU core routes to vector 000004. M4 implements
+LSI11_TOLERANT's odd-address word access as a split byte pair (the
+nonexistent-memory case traps cleanly; the backplane-dependent variants
+are flagged §22.1). DCJ11_STRICT is M6 work and raises NotImplementedError
 per §19.10 — never a guessed behavior.
 """
 
@@ -21,6 +23,7 @@ from __future__ import annotations
 from typing import Any, NoReturn
 
 from pdp11.bus.abstract_bus import BusDevice, BusInit
+from pdp11.bus.qbus import QBus
 from pdp11.bus.unibus import Unibus
 from pdp11.config.profiles import BusErrorModel, BusType, MachineProfile
 from pdp11.cpu import interrupts
@@ -107,10 +110,13 @@ class SystemBoard:
         self.rom_base = 0
         # M2: Unibus machines get a real Unibus arbiter (NPR/BR daisy chain,
         # §6.1); the board's device list IS the backplane slot order.
-        # Q-Bus profiles keep the plain list until M4/M6 (qbus.py).
+        # M4: Q-Bus machines get the BIAK/BDMG arbiter (qbus.py).
         self.unibus: Unibus | None = (
             Unibus(profile.physical_bits) if profile.bus is BusType.UNIBUS else None)
-        self.devices: list[BusDevice] = self.unibus.devices if self.unibus else []
+        self.qbus: QBus | None = (
+            QBus(profile.physical_bits) if profile.bus is BusType.QBUS else None)
+        arbiter = self.unibus if self.unibus is not None else self.qbus
+        self.devices: list[BusDevice] = arbiter.devices if arbiter is not None else []
         self.cpu = CPU(profile, clock)
         self.cpu.bus = self                      # the single MemoryInterface (§4.2)
         self.cpu.devices = self.devices
@@ -149,12 +155,21 @@ class SystemBoard:
         if model is BusErrorModel.UNIBUS_TIMEOUT:
             kind = "odd-address word access" if is_word and addr & 1 else "nonexistent memory"
             raise BusInit(f"Unibus timeout ({kind}) at octal {oct(addr)}")
-        raise NotImplementedError(
-            f"§5.5 bus_error_model {model.name} — M4 (11/03) / M6 (11/94)")
+        if model is BusErrorModel.LSI11_TOLERANT:
+            # nonexistent memory on the LSI-11 depends on backplane config
+            # (§5.5); v1 models a clean Q-Bus timeout — flagged §22.1
+            raise BusInit(f"Q-Bus timeout (nonexistent memory) at octal {oct(addr)}")
+        raise NotImplementedError(f"§5.5 bus_error_model {model.name} — M6 (11/94)")
 
     def read_word(self, addr: int) -> int:
         """Read a 16-bit word. One bus cycle per transfer (§5.6)."""
-        addr &= self._addr_mask                  # flat 16-bit wrap in M1
+        addr &= self._addr_mask                  # wrap at the profile's physical width
+        if addr & 1 and self.profile.bus_error_model is BusErrorModel.LSI11_TOLERANT:
+            # LSI-11 quirk (§5.5): an odd-address word read is split into two
+            # byte transfers instead of trapping uniformly — flagged §22.4
+            lo = self.read_byte(addr)
+            hi = self.read_byte((addr + 1) & self._addr_mask)
+            return lo | (hi << 8)
         self.cycles_used += 1
         if addr & 1:                             # Unibus word reads must be even
             self._bus_error(addr, is_word=True)
@@ -170,6 +185,11 @@ class SystemBoard:
     def write_word(self, addr: int, value: int) -> None:
         """Write a 16-bit word. One bus cycle per transfer."""
         addr &= self._addr_mask
+        if addr & 1 and self.profile.bus_error_model is BusErrorModel.LSI11_TOLERANT:
+            # LSI-11 quirk (§5.5): odd-address word write splits into bytes
+            self.write_byte(addr, value & 0o377)
+            self.write_byte((addr + 1) & self._addr_mask, (value >> 8) & 0o377)
+            return
         self.cycles_used += 1
         if addr & 1:
             self._bus_error(addr, is_word=True)
@@ -219,6 +239,8 @@ class SystemBoard:
         self.io_page.attach(address, device)
         if self.unibus is not None:
             self.unibus.attach(device)
+        elif self.qbus is not None:
+            self.qbus.attach(device)
         else:
             self.devices.append(device)
 
@@ -229,6 +251,8 @@ class SystemBoard:
         slot-order scan until their modules land (M4/M6)."""
         if self.unibus is not None:
             return self.unibus.grant_interrupt()
+        if self.qbus is not None:
+            return self.qbus.grant_interrupt()
         return interrupts.pending(self.devices)
 
     def service_dma(self) -> int:
@@ -237,9 +261,10 @@ class SystemBoard:
         Every word it moves through read_word/write_word is already counted
         in cycles_used by the routing layer; the return value is the number
         of stolen cycles to charge to the current instruction (≥ 1)."""
-        if self.unibus is None:
+        arbiter = self.unibus if self.unibus is not None else self.qbus
+        if arbiter is None:
             return 0
-        dev = self.unibus.grant_dma()
+        dev = arbiter.grant_dma()
         if dev is None:
             return 0
         before = self.cycles_used

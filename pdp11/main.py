@@ -16,6 +16,8 @@ M2: real assembly — SystemBoard + console DL11 + boot ROM (§13) + ODT shell
 on HALT (§9). Wall-clock throttling lives only in run() below (§19.6).
 M3: KW11-L line clock and RK11/RK05 with --disk containers (§16) attach
 through the same registry.
+M4: 11/03 Q-Bus arbiter (bus/qbus.py), DZ11 at 160100, RX11/RX01 at 177170;
+--disk dispatches by container size (RK05 -> RK11, RX01 -> RX11, §11.2/§11.3).
 """
 
 from __future__ import annotations
@@ -27,13 +29,15 @@ import time
 from typing import Any
 
 from pdp11.board import SystemBoard
-from pdp11.config.profiles import PROFILES, MachineProfile
+from pdp11.config.profiles import PROFILES, BusType, MachineProfile
 from pdp11.control.front_panel import ODT, FrontPanel
 from pdp11.control.rom_loader import attach_boot_rom
 from pdp11.devices.dl11 import DL11
+from pdp11.devices.dz11 import DZ11
 from pdp11.devices.kw11l import KW11L
 from pdp11.devices.rk11_rk05 import RK05, RK11
-from pdp11.disk_images.container import open_disk_image
+from pdp11.devices.rx11 import RX11
+from pdp11.disk_images.container import RK05_SECTOR, RX01_SECTOR, open_disk_image
 from pdp11.graphics.render_backend import RenderBackend, StdioBackend
 from pdp11.graphics.terminal import ConsoleTerminal, TerminalFrontend
 from pdp11.system_clock import SystemClock
@@ -47,6 +51,8 @@ BUS_CYCLE_NS = 150  # nominal Unibus cycle (§5.6) — used ONLY for --throttle 
 CONSOLE_DL11_BASE = 0o177560
 KW11L_BASE = 0o177546
 RK11_BASE = 0o177400
+RX11_BASE = 0o177170
+DZ11_BASE = 0o160100
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -100,30 +106,44 @@ def assemble(args: argparse.Namespace, terminal: TerminalFrontend) -> SystemBoar
     # default devices: attach the implemented ones in profile order (slot
     # order = daisy-chain priority, §6.1); skip not-yet-implemented ones.
     requested = overrides.get("devices", profile.default_devices)
-    disks = [open_disk_image(p) for p in (args.disk or [])]   # M3 containers (§16)
-    disk_index = 0
+    disks = [open_disk_image(p) for p in (args.disk or [])]   # containers (§16)
+    rk_images = [d for d in disks if d.sector_size == RK05_SECTOR]
+    rx_images = [d for d in disks if d.sector_size == RX01_SECTOR]
     rk_attached = False
+    rx_attached = False
     for name in requested:
         if name == "dl11_console":
             board.attach_device(CONSOLE_DL11_BASE, DL11(clock, terminal))
         elif name == "kw11l":
             board.attach_device(KW11L_BASE, KW11L(clock))       # §5.6 line clock (M3)
+        elif name == "dz11":
+            # BIRQ4 on Q-Bus, BR5 on Unibus (E11 default; flagged §22.4)
+            br = 4 if profile.bus is BusType.QBUS else 5
+            board.attach_device(DZ11_BASE, DZ11(clock, br_level=br))
         elif name == "rk11_rk05":
-            image = disks[disk_index] if disk_index < len(disks) else None
-            disk_index += 1
+            image = rk_images.pop(0) if rk_images else None
+            board.attach_device(RK11_BASE, RK11(clock, board, RK05(image)))
+            rk_attached = True
+        elif name == "rx11":
+            image = rx_images.pop(0) if rx_images else None
+            board.attach_device(RX11_BASE, RX11(clock, image))
+            rx_attached = True
+        else:
+            _log.info("device %r not implemented until its milestone — skipping", name)
+    # leftover --disk images attach by container format (§16): RK05 -> RK11,
+    # RX01 -> RX11 — even on profiles whose defaults don't list them (§11.2/§11.3)
+    for image in rk_images:
+        if not rk_attached:
             board.attach_device(RK11_BASE, RK11(clock, board, RK05(image)))
             rk_attached = True
         else:
-            _log.info("device %r not implemented until its milestone — skipping", name)
-    # --disk on a profile whose defaults lack rk11_rk05 (e.g. 11/20, §11.3):
-    # attach the RK11 anyway so the boot-disk path works out of the box.
-    if disks and not rk_attached:
-        image = disks[disk_index] if disk_index < len(disks) else None
-        disk_index += 1
-        board.attach_device(RK11_BASE, RK11(clock, board, RK05(image)))
-    if disk_index < len(disks):
-        _log.info("%d extra --disk image(s): v1 models RK11 drive unit 0 only — ignored",
-                  len(disks) - disk_index)
+            _log.info("extra RK05 image %s: v1 models drive unit 0 only — ignored", image.path)
+    for image in rx_images:
+        if not rx_attached:
+            board.attach_device(RX11_BASE, RX11(clock, image))
+            rx_attached = True
+        else:
+            _log.info("extra RX01 image %s: v1 models drive 0 only — ignored", image.path)
     if args.console not in ("odt",):
         _log.info("--console %s: full terminal emulation lands M7; using plain console",
                   args.console)

@@ -327,10 +327,11 @@ def test_1120_noops_microcoded_only_opcodes():
     assert cpu.state.R[Reg.PC] == 0o000102 and cpu.state.R[2] == 0
 
 
-def test_eis_raises_notimplemented_on_eis_fitted_machine():
-    """§19.10: on the 11/03 (KEF11 -> EIS cap present) an EIS opcode reaches
-    its handler, which must crash loudly until M4 — never silently no-op."""
-    cpu, _b = make_machine(profile_key="11/03", program=[0o070027, 0o000005], pc=0o000100)
+def test_fis_still_stubbed_on_eis_fitted_machine():
+    """§19.10: on the 11/03 (KEF11 -> EIS cap present) the M4-landed EIS opcodes
+    execute (see test_eis.py); FIS 0o075xxx is still a stub and must crash
+    loudly — never silently no-op."""
+    cpu, _b = make_machine(profile_key="11/03", program=[0o075000, 0o000005], pc=0o000100)
     with pytest.raises(NotImplementedError):
         cpu.step()
 
