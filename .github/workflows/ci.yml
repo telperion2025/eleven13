@@ -36,6 +36,8 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+      - name: Install dev extras (pytest, pytest-cov, ...)
+        run: uv sync --extra dev
       - name: Coverage gates (spec §18.2 per-package line coverage)
         run: |
           uv run pytest -q --cov=pdp11.cpu --cov-fail-under=90
