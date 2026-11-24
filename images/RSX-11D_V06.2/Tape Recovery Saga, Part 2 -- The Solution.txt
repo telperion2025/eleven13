@@ -1,0 +1,393 @@
+(This is cobbled together from correspondence from my
+e-mail archive.)
+
+------------------
+
+So, it's pretty clear to me what happened to that
+RSX-11D distribution tape.  The original tape
+was blocked, from File 5 to the end (following the
+4 boot files at the beginning of the tape,
+all blocked at 512), with 4K blocks (in the case of
+the files larger than 4K).
+
+Whatever utility was used to image the tape couldn't
+**quite** handle the full block size, and lost a word
+(two bytes) at the end of every block, thus corrupting
+every file on the tape with size (following the header)
+larger than 4K.
+
+Now you might think that this is utterly unrecoverable
+data corruption, and you'd be right.  However. . .
+
+It floated through my mind that RSX-11D, and that little-known
+operating system IAS, were pretty closely related.  The
+latter was, I believe, a superset of the former.
+
+Now a long time ago, back in 2012 or 2013 maybe, I
+downloaded a bunch of PDP-11 stuff from an ftp site in Russia.
+Among these files was "ias30sys.zip".  And that
+Zip file contains a tape IAS30SYS.TAP
+(undoubtedly the same one that's on bitsavers, along
+with some IAS 3.4 tapes:
+http://www.bitsavers.org/bits/DEC/pdp11/magtapes/ias/ )
+
+It's about twice the size of the RSX-11D distribution tape.
+FLX (on an RSX-11M system) shows **seven** boot files,
+and claims a total of 2361. blocks in 261. files.
+
+More importantly, "mtdump -s ..." shows a well-behaved
+structure on this tape, with -- surprise! -- the big
+files blocked at 4096.
+
+I used my trick with the RSX-11D sysgen "CPY" program to get the
+files following the boot files on to a disk (without actually
+performing an IAS sysgen).
+
+And here's the crazy thing I did.  It occurred to me
+that many or all of the files on the IAS tape would be
+quite similar, if not identical, to the files on the
+RSX-11D tape.   I didn't expect to be able to replace
+files wholesale, but I thought it might be possible
+to patch the "holes" in the RSX-11D files by looking for
+similar stretches of code/data in the corresponding IAS
+files.  After all, there aren't all that many "holes",
+and the holes are each only 2 bytes.
+
+The two files I started with, to see if what I was thinking
+of would be possible at all, and that would tell me right off the bat
+whether I was wasting my time or not, were INS.TSK (with 3 "holes)
+and SYSRES.TSK (with just one "hole").
+Actually, patching them turned out to be fairly easy.
+
+I went through the raw (de-blocked) files side-by-side
+and looked for a likely replacement for the dropped
+word in the RSX-11D file.   I made a list of replacement words
+from which I can drive a program to do the actual patching.
+
+And by damn if it doesn't seem to be working!
+"INS" now executes off the disk, during the RSX-11D sysgen
+(of course it crashes after that, because I've only done
+the two files so far).
+
+There is a certain "probabilstic" element to all this --
+I suppose it's conceivable that, through sheer bad luck,
+a "hole" in an RSX-11D file could occur surrounded by a
+stretch of code/data identical to that in an IAS file, but
+still have been originally different in just that spot
+(an address, or something).  That could introduce some
+subtle bugs!  Even if I manage to recover the system,
+there's no way you'd want to bet your life on it
+(the DEC warranty has absolutely been voided ;->  ).
+
+But I'm having fun, so who cares?
+
+------------------
+
+Some of these patches make me queasier than
+others.  I may, eventually (and sooner rather
+than later -- possibly already, I fear), hit a spot where
+the data (probably an address) really is gone,
+short of disassembling the code and figuring
+it out.
+
+Meanwhile. . .
+
+------------------
+
+So, I've managed to get all the way to the end of
+System Generation Phase 2.
+
+I "patched" a number of programs by comparison to the IAS
+equivalents (including INS.TSK, which got me past the
+first roadblock).   But a number of them are significantly
+different from their IAS equivalents, including
+DB.TSK (the RP06 disk driver, I would assume), EXEC.TSK
+(the kernel itself, I guess), SGN1.TSK and SGN2.TSK
+(the Phase 1 & 2 system generation programs themselves),
+TKB.TSK, SAV.TSK, HEL.TSK, and probably others.  I was really
+worried about the kernel and disk driver, but then it occurred
+to me that there must be similar code in the D62BOOT.TPC
+boot blocks themselves, and there was, so I patched
+them against that.
+
+I also took a closer look at the other tapes in the distribution
+kit, which were undamaged (being blocked at < 4K).
+It turned out that D62OBJ.TPC had a few copies of files
+that were damaged on D62BOOT.TPC, including SYSRES.TSK.
+
+There's a good deal more on D62OBJ.TPC that might be used
+to rebuild a lot of the programs, if you had a working system in
+the first place.
+
+Anyway, RSX-11D sysgen now gets to the end of Phase 2 and hangs.
+You don't get a command prompt, or a login prompt,
+or anything.   I was about to give up, and then it
+occurred to me that I should bite the bullet and attempt
+an IAS system generation from that Russian tape.
+It turns out the procedure is identical
+to RSX-11D (right down to spelling "INITIALISE" with
+the British spelling ;->  ).   There's just more of it,
+and it's noisier (beeps a lot).  Same "Phase 1"
+and "Phase 2".
+
+IAS does the same as RSX-11D now does -- it gets to the end
+of Phase 2 (where there are the same messages:
+RED   -- WARNING:   HANDLER NOT RESIDENT
+*** END OF SYSTEM GENERATION PHASE 2 ***
+and then hangs.
+
+------------------
+
+Well, that was silly!
+
+Apparently, following Phase 2, you have to type 'Ctrl-C'
+to **request** the MCR.  That's all there was to it!
+
+Also, SAV worked!  So I have a post-sysgen bootable system.
+
+TKB is still seriously unhappy.
+Well, maybe I can figure out a way to get that back
+(maybe with the help of the IAS system).
+
+------------------
+
+I've got a working RSX-11D linker!
+
+And it's a minor miracle.
+
+As I mentioned before, comparing (damaged) RSX-11D files
+against their IAS equivalents has its limits -- some files
+are too dissimilar.   In the case of TKB.TSK, I could patch
+some, but not all, of the "holes" this way, and TKB
+still crashed hard on 11D.
+
+So the next thing that crossed my mind was to try
+building a TKB.TSK on IAS using the object code
+from D62OBJ.TPC. [11,11]TKBBLD.CMD runs the linker,
+driven by TKBODL.ODL (the overlay description file),
+and links against TKB.OLB (the object library).
+Also linked against are [1,1]SYSLIB.OLB and the
+SGA ("system globals area", I guess that stands for)
+SYSRES (via [1,1]SYSRES.STB).   So my first try was
+to run the IAS linker, and with the RSX-11D SYSLIB.OLB
+and SYSRES.STB in the IAS [1,1] directory.   This
+generated a task file (with errors --
+MODULE .GCML AMBIGUOUSLY DEFINES SYMBOL .CSI1
+MODULE .GCML AMBIGUOUSLY DEFINES SYMBOL .CSI2
+MODULE .CSI1 MULTIPLY DEFINES SYMBOL .CSI1
+MODULE .CSI2 MULTIPLY DEFINES SYMBOL .CSI2
+-- the above sequence repeated twice.
+(GCML is "Get Command Line" and CSI is "Command String
+Interpreter").
+The resulting TKB.TSK immediately crashed, of course,
+on IAS, but that was to be expected, and that's not
+what I wanted it for.
+
+So comparing that with the damaged RSX-11D TKB.TSK
+allowed me to plug a few more holes (and also, along
+the way, I did a comparison with SYSLIB.OLB from
+the D62OBJ.TPC tape, which only served to confirm
+one already-made patch), but there remained a couple of
+unpatched holes, and while TKB.TSK now gave a command
+prompt TKB>  when invoked on RSX-11D, it still crashed
+hard when asked to do anything (like rebuild itself:
+TKB @[11,11]TKBBLD).
+
+So then I thought of something more radical.   What if
+I were to attempt to load the RSX-11D SYSRES.TSK SGA file
+on IAS, not **instead** of the native IAS SYSRES,
+but in **addition** to it (calling it "MYRES").
+My first attempt to load RSX-11D's SYSRES.TSK on IAS
+failed, as I expected -- it wasn't a legitimate
+IAS task file.   Then I Kermitted off both the
+RSX-11D SYSRES.TSK (undamaged, because I had replaced
+it with the copy from D62OBJ.TPC) and the IAS SYSRES.TSK,
+and examined them both.  I could see header information,
+and then an identical stretch of code.  So I snipped
+off the header from IAS SYSRES.TSK and the body from
+the RSX-11D SYSRES.TSK ("dd. . . count=" and "dd. . . skip="),
+and pasted the IAS header on the RSX-11D body to make
+a spoofed IAS executable "MYRES.TSK".
+
+I could hardly believe my eyes when IAS swallowed
+INS [1,1]MYRES.TSK/LI/ACC=RO
+without complaint.  Now I attempted to link once again an
+RSX-11D TKB against the object files from D62OBJ.TPC (and
+also against [1,1]MYLIB.OLB and [1,1]MYRES.STB --
+copies of RSX-11D SYSLIB.OLB and RSX-11D SYSRES.STB, respectively).
+I got a different-size resulting
+TKB.TSK file than the one I got before (and also got
+error messages -- the same ones as above, plus
+a couple of additional ones).
+
+Once again, I Kermitted out this IAS-linked TKB.TSK
+and compared it with the damaged RSX-11D TKB.TSK to see
+if I could plug the remaining holes.  And the answer
+seemed to be yes.  So I generated a new boot tape
+for RSX-11D with the (seemingly) completely-patched TKB.TSK
+file on it (file #60 -- I remember it well!).
+
+And -- it was an absolute miracle -- running the new
+TKB.TSK on RSX-11D allowed it to re-link itself.  It's all
+the luckier because when I examined the "officially
+recreated" RSX-11D TKB.TSK against my patch list, one
+of the patches out of -- what, 17? (not all significant,
+though) was incorrect.  (So I fixed that, repatched
+the file, and regenerated the boot tape.)
+
+Otherwise, the recreated TKB.TSK seems to be identical
+(apart from "holes") to the TKB.TSK off of D62BOOT.TPC,
+**except** that each patch position was exactly 16
+bytes further behind the corresponding hole position
+than the preceding one (the rows all lined up in the output
+of "od", but the positions weren't the same).
+
+[Silly me.  The file off D62BOOT.TPC has the extra
+two-byte "internal" blocking record lengths
+every 512 bytes; the relinked TKB.TSK file does not.]
+
+------------------
+
+I think the obvious thing to do for a public-release package
+would be to provide the original
+material that Alan Frisbie sent me on Nov. 17, 2016
+(and updated on April 9, 2017), and also provide an
+automated procedure for generating a patched
+tape from Alan's original tape that could then be used to
+sysgen RSX-11D 6.2 on SimH.   Whoever did this **all** the way
+from the beginning (starting with the single BRU tape
+provided to me by Alan) would have to have an RSX-11M
+system to run BRU on, but maybe we could also provide the
+individual tape images extracted from the BRU tape
+(D62BOOT.TPC, D62OBJ.TPC, etc.) to allow
+somebody to bypass that step.
+
+I'm doing all this on Windows 10, but in a Unix-ish environment
+(Msys, Cygwin) that would presumably port easily to Linux.
+
+------------------
+
+Now that I have the linker, the D62OBJ.TPC tape does, in fact,
+seem to provide the means to relink the entire system (including the
+Executive, the device handlers, and the system generation
+programs themselves).
+
+The following command files are provided as input
+to TKB:
+
+[11,2]TKB2.CMD
+SYSRES and SQUEEZE
+
+[11,4]TKB4.CMD
+Filex (FLX)
+
+[11,5]TKB5.CMD
+PIP, DUMP (DMP), VERIFY (VFY), ZAP, PAT
+(calls QIOBLD)
+
+[11,6]TKB6.CMD
+SLP
+
+[11,7]TKB7.CMD
+LBR
+
+[11,12]TKB12.CMD
+PRT, PRTX, QUE, SPR, SPR2, OPR, SPL
+
+[11,13]TKB13.CMD
+ACT, BYE, HEL, LUN, MCRERR, MCR, TTMCR,
+MEM, MFT, OPE, PWD, REA, RED, SET, TIM,
+TKTN, UNL, DEMO
+
+[11,14]TKB14.CMD
+I/O handlers (DB, etc.; depends on EXEC.STB)
+
+[11,15]TKB15.CMD
+EXEC
+
+[11,16]TKB16.CMD
+F11MSG, BAD, INIT, MOU, DMO, UFD, BIGFCP,
+FCP, DTAACP, MTABLD
+
+[11,17]TKB17.CMD
+Calls SG1BLD, INVBLD, BOOTSBLD, SG2BLD, SAVBLD,
+MCRBOTBLD
+
+[11,20]TKB20.CMD
+EDI
+
+[11,21]TKB21.CMD
+Tests
+
+[11,23]TKB23.CMD
+BAT, BPR
+
+[11,25]TKB25.CMD
+"Unsupported UFD"
+IND, MCR, RNO, TEC, VMR, SENDTK
+
+[11,26]TKB26.CMD
+Accounting
+ACCLOG, ACCOFF, ACCABT
+Calls RPTBLD
+
+[11,26]TKB05ACC.CMD
+PIP, VFY, DMP, ZAP, PURPIP
+
+[11,26]TKB07ACC.CMD
+LBR
+
+[11,26]TKB04ACC.CMD
+FLX
+
+[11,26]TKB41ACC.CMD
+Fortran IV V01B   (FOR)
+
+[11,26]TKB11ACC.CMD
+UNOVRTKB, CRF
+
+[11,26]TKB20ACC.CMD
+EDI
+
+[11,26]TKB06ACC.CMD
+SLIPR (SLP)
+
+[11,27]TKB27.CMD
+ERRLOG, ERROFF, PSE, SYE
+User-mode diagnostics,
+diagnostic handlers via DGNBLD
+
+[11,30]TKB30.CMD
+Preserve and DSC
+
+[11,103]TKB103.CMD
+Crash dump analyzer
+CDA (via [11,103]CDATKB.CMD)
+
+[11,114]TKB114.CMD
+Terminal handler (via [11,114]TTTKB.CMD)
+
+[11,114]TTTKB.CMD
+TT.TSK, TTLIBA.TSK, TTLIBB.TSK
+(and the *.STB)
+
+------------------
+
+My goal now is to create a complete patch list for all
+the damaged files on D62BOOT.TPC.  That mostly
+means re-linking executables to compare against the
+versions extracted from the tape.
+
+So far, so good.   I'm still feeling like it's a miracle
+I was able to pull this off.   ;->
+
+------------------
+
+I've got the terminals working!
+
+And the RSX-11D boot tape is now completely patched, and I've
+completely automated the procedure for generating a patched
+tape from Alan's original tape.
+
+I'm now working on documentation to include with the package.
+==================

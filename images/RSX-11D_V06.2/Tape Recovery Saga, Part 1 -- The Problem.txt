@@ -1,0 +1,488 @@
+(This is cobbled together from correspondence from my
+e-mail archive.)
+
+------------------
+
+Back in May, 2015, Alan Frisbie posted a message on alt.sys.pdp11
+(on 5/16/15, in the thread at
+https://groups.google.com/g/alt.sys.pdp11/c/3DghO11j6Vg/m/x7qkKgo97FkJ ):
+"I just recovered a complete RSX-11D v6.2 distribution kit
+yesterday, in case anyone is interested."
+
+In November, 2016, I sent Mr. Frisbie an e-mail asking if I could
+have a copy of this kit to try out on SimH. We had some more
+correspondence in April, 2017, when I finally
+got around to playing with it, and after a bit
+of difficulty and back-and-forth it turned out that the
+file he sent me was a TPC tape image of a single BRU archive
+which, when extracted on a SimH RSX-11M system, created
+a disk containing a directory [2,1] with files
+(all dated 20-MAY-87):
+
+11D62KIT.TXT;1
+D62BOOT.TPC;1
+D62EXEC1.LIS;1
+D62EXEC1.TPC;1
+D62EXEC2.LIS;1
+D62EXEC2.TPC;1
+D62OBJ.LIS;1
+D62OBJ.TPC;1
+D62UTIL.LIS;1
+D62UTIL.TPC;1
+
+The above five are presumably the RSX-11D 6.2 installation
+kit.  In addition to these, there are:
+
+FOR01CBIN.LIS;1
+FOR01CBIN.TPC;1
+FOR01CRTM.LIS;1
+FOR01CRTM.TPC;1
+FOR01CSRC.LIS;1
+FOR01CSRC.TPC;1
+
+and
+
+IBASISY02.LIS;1
+IBASICY02.TPC;1
+
+My first thought was to Kermit (in binary-transfer
+mode) the *.TPC files off of RSX-11M and attach them as
+tape images in SimH with "attach -F TPC ...".
+I later remembered that I could, alternatively,
+have used TPC or BIGTPC (from the DECUS archives)
+on my RSX-11M system to send those *.TPC files back to a
+SimH-attached (SimH TAP-format) mag tape image in order to
+make use of them, rather than Kermitting them off the
+RSX-11M system, and I have since used that method as well.
+
+My earliest efforts with these tapes, back in 2017,
+concentrated on the D62BOOT.TPC file, the tape that
+is booted from to start off system generation.
+
+That tape did indeed boot, but my initial attempt at
+performing the (RSX-11D) system generation ended with this:
+
+-----------------------------------
+CPY MT:=SY:
+
+CPY -- STARTING COPY
+
+CPY -- MAGTAPE QIO ERROR -- IOST = -13. - CONTINUING
+CPY -- MAGTAPE QIO ERROR -- IOST = -13. - CONTINUING
+CPY -- MAGTAPE QIO ERROR -- IOST = -13. - CONTINUING
+CPY -- MAGTAPE QIO ERROR -- IOST = -13. - CONTINUING
+
+CPY -- COPY COMPLETE (ALLOW TAPE TO REWIND)
+
+
+CRASH - NO CRASH MODULE PRESENT
+
+HALT instruction, PC: 035622 (JMP 35676)
+====
+
+I performed some further experiments with FLX on the
+SimH RSX-11M system, and was able to copy the other
+tapes in the distribution kit (also Kermitted off RSX)
+back to an RSX disk with no I/O errors.
+However, with D62BOOT.TPC, while I was
+able to use FLX to copy the first four files (all with names
+beginning BOOT..., according to FLX) without error
+(by using the /IM switch), the (apparent) remaining
+two files (six files is all that FLX could "see" on the tape)
+both gave I/O error -13 when FLX attempted to copy them
+(which indicates a data overrun, according to the manual).
+Also, FLX could only see a total of 796 blocks (407,552 bytes)
+on the tape, far short of the tape image file's total size of
+2,318,336 bytes).
+
+And that's where I left things for a very long time.
+
+I was inspired to take another crack at the 11D distribution
+tape image by two events -- one: the recent appearance of some RSX-11D
+disks on eBay
+http://www.classiccmp.org/pipermail/cctalk/2021-March/058190.html
+and two: my recollection of a Herculean (and ultimately successful)
+effort a few years ago by somebody named Paul Nankervis
+to repair a damaged RSTS V06C-03 installation tape
+https://skn.noip.me/pdp11/RSTSv06c.html
+(Nankervis' project was in early 2017
+https://groups.google.com/g/alt.sys.pdp11/c/3A2S0av2H00/m/FqhYQ9lAAAAJ
+but I don't remember exactly when I stumbed upon it.)
+
+I figured I could at least do due diligence by using available
+tools to examine in more detail the structure of the tape image.
+I started with Simtools' 'mtdump'.  In the output of
+'mtdump -c D62BOOT.TPC', the first four files of
+D62BOOT.TPC -- the boot files -- look reasonable, each with
+an 18-byte header record followed by a few hundred 512-byte records.
+However, the 5th and 6th files have unlikely record sizes
+(the first record following the header having length "4095", and subsequent
+records having wildly varying sizes -- the very next one has
+length "65535", according to "mtdump -c ...").
+That would certainly account for the "MAGTAPE QIO ERROR -- IOST = -13."
+error reported by the "CPY MT:=SY:" command in the 11D sysgen script.
+Also, mtdump reported the "end of logical tape" at position 519,752 --
+also far short of the size of the tape image.
+
+So next I chopped off the first four files of D62BOOT.TPC
+(using 'dd . . . bs=1 count=NNNN' and 'dd . . . bs=1 skip=NNNN')
+and set them aside, and examined the beginning of the
+remainder of the tape image with 'od -v -Ad -t u2 . . .'.
+I could see the 18-byte header of file 5 (actually 20 bytes in
+all in TPC format -- a 2-byte record length of '18' followed by
+the 18 actual header bytes), followed by that
+strange 4095 (in TPC format, that should be a 2-byte
+record length for the first record following the header record).
+I also noticed that the word following '4095' was '512'.
+On a vague hunch, I chopped out the '4095' from file 5
+and re-ran mtdump.  I was delighted to see that file 5
+now appeared as a well-behaved sequence of 512-byte records.
+Also, I was intrigued to note that FLX now reported a
+different file name following "RSXMAC   A." -- it was now
+"EXEC   B." instead of "PRESERV L3.".
+
+To make a long story short, I went through the entire tape,
+and found a pattern -- all multi-record (apart from the header) files
+had that mysterious "4095" following the header, while all single-record
+files did not.  I split out all the files on the tape image,
+by hand, and excised all the "4095"s following the headers, to expose
+seemingly well-behaved TPC file images.
+There are 198 files in all, plus 3758 bytes at the end comprising two
+file fragments (following the "real" logical end-of-tape).
+
+However, after I assembled all of these "repaired" files back into
+a reconstructed boot tape, "CPY" would now simply hang,
+rather than reporting an I/O error, when attempting to
+copy the first file (#5) on the tape following the
+boot files.
+
+I had noticed earlier that even when "CPY MT:=SY:" failed
+or hung, it did create a directory entry for that file
+(containing 0. blocks out of NN. blocks reserved for it)
+on the disk drive on which the system generation script was
+attempting to place a baseline system.  And
+I can mount the "wannabe" RSX-11D disk on a SimH RSX-11M
+system to see what's there. The names and directories
+created on the disk aren't exactly the same as what FLX
+reports as on the tape; so, e.g.,
+"RSXMAC   A.  194.  14-Sep-70 <1> [170,324]"
+reported by FLX becomes
+"[1,1]RSXMAC.SML;1  194.  12-JUL-77 14:28"
+on the RSXSYS disk.
+
+With nothing better to do, I decided to cobble together
+test tapes containing the four boot files, followed
+by a selection of one or more of the files
+I had excised and/or "repaired".
+Even if "CPY" failed to copy these, I could at least,
+I thought, find out what they were actually supposed
+to be called and where they were actually supposed
+to go on the RSXSYS disk.  I discovered that CPY
+would copy, or try to copy, whatever file or files
+I tacked on after the four boot files.  As well as
+gathering the "actual" file names, I made a very
+interesting discovery during the course of this
+experiment, which paved the way forward.  I discovered
+that **none** of the originally-multi-record files,
+which I had "repaired" by excising the seemingly-spurious
+"4095", would copy; but **all** of the
+originally-single-record files would copy to the
+disk successfully, either singly on a test tape,
+or all strung together on a single test tape.
+
+Further, the success or failure of CPY to copy a
+file seemed to have nothing inherently to do with
+how many records (following the header) the file
+contained -- I could reblock those single-record
+files (for instance, change a single record originally
+containing several thousand bytes into a succession of 512-byte
+records plus a trailing record containing the remainder
+modulo 512), and that doctored file would copy
+just as well as the original version.  Further,
+the files containing text (*.CMD, *.MAC, *.MSG
+files) that did successfully copy to the disk
+looked just fine when I examined them on the
+RSX-11M system (and this was also true for
+the reblocked versions).
+
+The text files provided a clue.  There happened to be
+two text files right next to each other on the tape --
+File 19, [1,2]PRT.MSG (2. blocks) on disk, which was a
+single-record file and copied successfully; and
+File 20, [1,2]QIOSYM.MSG (29. blocks) on disk,
+which was a multi-record file (that had been "repaired"
+by excising the "4095") which did not copy.
+I examined these carefully using 'od' and I made a
+discovery.  The text file that successfully copied
+(PRT.MSG), in its first (and only) record following the
+header, contained a two-byte number immediately following
+the TPC record length -- a two-byte number giving the
+"internal" record length of the first line of the text.
+
+That was the key.  The **externally** (as seen by mtdump)
+single-record files from the original tape image all had
+**internal** record lengths as part of the "payload".
+With the multi-record files from the original tape,
+the text line-lengths were **external** -- they showed up
+as the TPC record lengths -- and the "payload" was
+missing the required record lengths.  So I tried
+"reblocking" the body of File 20 (QIOSYM.MSG)
+so that what started out as external TPC record
+lengths were now "inside" -- part of the payload --
+and the external TPC record sizes were now 512 plus
+a trailing record with leftover "change".
+
+When QIOSYM.MSG was reblocked in this way, "CPY" now
+successfully copied it to the disk.
+
+Not only text files needed to be reblocked in this way.
+Binary files, such as .TSK files, also had "internal"
+record lengths.  These were preserved in the D62BOOT.TPC
+tape image if they consisted of single-record payloads,
+but had the record lengths on the "outside" if they
+were multi-record (and after being "repaired" by me).
+CPY refuses to copy (hangs) if a binary file is missing these
+"internal" (512-byte, for task files) record lengths.
+I also discovered that "CPY" strips these "512"
+record lengths out of task files during the copy,
+but leaves them in (usually variable line-lengths, but in one case --
+QIOSYM.MSG, in fact -- fixed 64-byte line lengths) for text files.
+(CPY also leaves internal record lengths in for
+some binary files, like *.STB symbol table files,
+with 122-byte records.).
+
+So now I was able to get CPY to copy **all** 198 files on
+the distribution tape to the RSXSYS disk, and the
+sysgen could proceed to the next step. Where it
+unfortunately failed once more.
+
+After the CPY, it gets to:
+
+INX SYSRES/LI/ACC=RO/UIC=[1,1],[11,1]INS
+UFX ...RED,...INX,...MOU,...UNL,...UFX
+INS [11,1]SGN1/TASK=...SG1/UIC=[11,17],[11,1]INV,[11,1]REM,[1,1]BOO
+
+. . .and there it hangs, trying to execute its first
+program from disk ([11,1]INS.TSK).  Which certainly suggests
+there's still something wrong with the INS.TSK file
+(or the SYSRES.TSK file, or all the files), whether
+or not they seem to have been copied successfully.
+
+Then I had a thought the other night
+when I was trawling through listings of DECUS tapes at
+ftp://ftp.trailing-edge.com/pub/rsxsig/
+looking for something that might help me get a little
+further.
+
+I remembered that "TPC" isn't just a tape format
+that SimH understands.  Its origin was for use on real
+DEC systems, for making disk images of tapes and later
+restoring them to tape (useful as a way of copying tapes without
+necessarily having the utilities that would be able
+to interpret the data on them).  Which is, of course,
+presumably how those RSX-11D tapes got imaged to *.TPC files
+in the first place (though by exactly which utility
+is an interesting question).
+
+The RSX DECUS tapes from 1977 through 1991 all have
+variations of utilities called TPC, BIGTPC, etc.  In fact,
+none other than Alan Frisbie has contributed to their
+maintenance.
+
+So I tried out two versions of this utility --
+BIGTPC, which I built from Macro-11 source on
+the rsx81b DECUS tape (in directory [312,315]);
+and from the other end of the timespan,
+TPC, which I found as an executable on the
+rsx91b DECUS tape (in directory [300,002]).
+In each case, the source was the D62BOOT.TPC file
+(restored from the BRU tape image, on an RSX-11M
+drive), and the destination was a native-format blank
+tape mounted by SimH.  The SimH tape images generated by the
+1981 BIGTPC and the 1991 TPC are identical.
+
+This time, "mtdump -s ..." (we're in the SimH tape
+format domain now rather than TPC) shows a sensible
+record structure on the reconstituted D62BOOT.tap,
+though the blocking (after the first four boot files)
+is rather large -- 4094 bytes per record, with leftover
+change at the end of each file.  There are 198 file headers,
+as I found out before, and FLX shows the same file names as I
+discovered earlier.
+
+That's the good news.  Now for the pretty bad news.
+
+The CPY command in the RSX-11D initial sysgen sequence
+now once again hangs on the first file after the boot files
+(RSXMAC.SML), using the version of the D62BOOT.tap tape
+generated by (BIG)TPC.  (Whereas with a tape containing
+the files I extracted, "repaired", and reblocked by hand,
+CPY was able to copy all 198 files.)
+
+So I split off some files from the new (BIG)TPC-generated
+D62BOOT.tap tape, deblocked them, and examined them in detail,
+side by side with raw data from my own version of the
+tape.  And I noticed something that I'd had an inkling of
+before, but had brushed aside.
+
+The (BIG)TPC utility on RSX-11 is indeed snipping out those
+"strange" (not-so-strange after all) 4095 record lengths
+following the file headers, but it's doing more than that.
+It turns out that the "4095" is not just some sort of flag
+occurring after a file header.  The same 4095 (16 bits as decimal number)
+two bytes seem to be inserted into the middle of files, quite
+regularly, at multiples of the 4094 "outer" record length.
+
+Examining the deblocked (raw) data from he first file after
+the four boot files, corresponding to RSXMAC.SML), and
+comparing it with the version of the file I reconstituted
+by hand, at position 4094 the files go out of sync.
+In my version of the file, there is a "4095" at position 4094,
+whereas in the (BIG)TPC-processed version, these two bytes have
+been removed.  This might seem to be correct, except for the fact
+that the (BIG)TPC-processed record (the data between the preceding
+and following "512" **internal** record lengths) is now short.
+The difference between the positions of the preceding and following
+"512" should be 514 -- the record data plus the two-byte internal record length.
+In records where a "4095" has been snipped out, the record is short --
+the difference between the record-length positions is is 512 instead of 514.
+This is what is causing CPY to stall -- it stumbles at the short record.
+I confirmed this by feeding CPY increasing-length pieces of
+this file, to see where the problem was.  I could even "replace" the missing
+two bytes at 4094 (with "65535", in this case, like the surrounding
+data -- would that they were all that obvious!) and have CPY process more
+of the file before it would balk.
+
+I've since written a short C program to extract arbitrary files
+from the boot tape, and they're all like that (that is, the ones that
+originally had "4095" following the header) -- they have
+short records where (BIG)TPC snipped out "4095" at multiples
+of 4094 positions in the file (whereas my own hand-reconstructed versions
+have spurious "4095"s at those positions; but the internal
+records aren't short, so CPY cheerfully copies them, though
+the files are actually corrupt).
+
+So that's where my analysis ends for the present.  If I'm
+overlooking something else, or if Alan can contribute some
+additional insights to this situation, then I'd be glad
+to hear it.  It would be a shame if that tape, originally
+imaged on October 24, 1977 according to the note in 11D62KIT.TXT,
+has been irretrievably damaged.  Are there really holes punched
+in these archived tapes, or am I still missing part of the
+puzzle?   These aren't random data errors, though --
+this is a systematic phenomenon. Could there really have
+been such a serious unobserved bug in the tape archiving program
+back in 1977?
+
+I'm hopeful that the other 8 tapes in
+that set don't have the same problem -- I've never looked at them
+beyond verifying, back in 2017, that I could copy the
+Kermitted-out *.TPC files (attached to SimH with "attach -F TPC...")
+back to RSX with FLX without getting I/O errors.
+But none of the other tapes have the large (4094)
+record sizes that seem to have something to do with
+the corruption of the distribution tape.
+
+------------------
+
+Addendum 1:  I performed an experiment with the 1981 BIGTPC to
+verify its correct operation with SimH.  I actually had to sysgen
+a new RSX-11M-PLUS 4.6 system with a ts (MS:) tape
+drive instead of the tm (MT:) in my other system.
+While I could BIGTPC out (to a tape on MT:) from a *.TPC file on
+disk, the program would hang going in the other
+direction (MT: tape to *.TPC on disk), but only with a tm (MT:)
+device not with a ts (MS:) device.  I haven't
+tried it with a tu (MM:) tape drive, because
+it doesn't seem to be possible, at least with SimH
+autoconfiguring the interrupt vectors, to have
+a Massbus tape drive and Massbus disk drives (rp; DB: or DR:)
+on RHA and RHB Massbus controllers on the same
+system.  [Edit: Actually, that's not true.  Maybe it
+was attempting to have tm and tu enabled at the same
+time that caused the conflict.  Ersatz-11
+doesn't have that problem. ;-> ] And BIGTPC didn't seem
+to work with a tq (MU:) tape drive either.
+
+So my test payload was a tar file containing
+Mini vMac, a Mac Plus ROM, and a floppy image containing
+System 6.0.7.  This mvmac.tar file came to about 1.7 megabytes,
+comparable to a good-sized tape.  I Kermitted mvmac.tar
+to RSX (in binary mode) -- MVMAC.TAR occupied
+3400. blocks on the RSX disk.  Then I used BRU
+to back MVMAC.TAR up to a SimH-attached tape (mvmac.tap).
+Then I used BIGTPC to image the tape back to
+a MVMAC.TPC file on the RSX disk.  Then I Kermitted
+the MVMAC.TPC file back out of RSX to the "real world"
+and examined it with "mtdump -c".  It had
+a reasonable structure, with large (4144 byte)
+records.  I then attached MVMAC.TPC directly
+to the SimH tape drive (with "attach -F TPC. . .")
+and BRU'd its contents (the MVMAC.TAR) back
+to an RSX disk.  Then I Kermitted this MVMAC.TAR
+(the copy BRU'd back from MVMAC.TPC) back out
+to the "real world" and extracted its contents
+("tar xvf ...").  It was still a Mac Plus running System 6.0.7.
+
+So BIGTPC works fine (at least the version from
+1981); and further, it should
+indeed be possible to use a TPC file created on RSX
+by BIGTPC by Kermitting it off RSX (in binary mode)
+and attaching it directly to SimH as a tape
+(with "attach -F TPC"), as I did originally with
+those RSX-11D tape images.
+
+On the other hand, using BIGTPC to send D62BOOT.TPC
+to a SimH .tap image, and then running "mtdump -s ..."
+on that, did make obvious to me the systematic, periodic occurrences
+of those "4095" (4094) record lengths (holes punched!) throughout the
+multi-record files in D62BOOT.TPC.
+
+------------------
+
+Addendum 2:  I would **guess** that the reason that
+"mtdump -c D62BOOT.TPC", on the file that was Kermitted
+out of RSX, gives different results from
+"mtdump -s D62BOOT.tap" (on the tape image that
+was recreated on an attached SimH tape by running BIGTPC
+with D62BOOT.TPC file on the RSX disk as its input), is that
+"mtdump -c ..." is taking those "4095" record
+lengths at face value (resulting in the parsing
+of the tape image going off the rails), whereas
+BIGPTC was apparently rounding those odd record
+lengths down to 4094 in the regenerated tape
+(thus producing a tape image that allowed
+"mtdump -s ..." to stay on track).
+
+But what utility, in October 1977, would have put those
+"4095"s in there in the first place, and why, if
+they were supposed to be record lengths,
+were they clobbering already-existing data words
+instead of being inserted in between the existing
+data words?  (There's a version of TPC listed in
+ftp.trailing-edge.com/pub/rsxsig/don/rsx77b.tpc_list :
+[300,002]TPC.MAC ; I don't think [340,100]QUTPC.MAC
+has anything to do with tape archiving.)
+
+Is this a known bug in the tape-archiving software
+of the time?
+
+------------------
+
+Addendum 3:  I built the 1977 version of TPC
+from Macro-11 source on the rsx77b.tpc DECUS tape and
+attempted to use it to image the BRU tape of the
+MVMAC.TAR file (with 4144 byte records) created in
+Addendum 1 above.  It refused to open the input
+tape at all.  So maybe that means the utility that
+apparently ruined the D62BOOT.TPC tape image was
+not TPC.
+
+My best guess as to what happened: the original tape
+was blocked, from File 5 to the end, with 4K blocks.
+Whatever utility was used to image the tape couldn't
+**quite** handle the full block size, and lost a word
+(two bytes) at the end of every block, thus corrupting
+every file on the tape with size (following the header)
+larger than 4K.
+

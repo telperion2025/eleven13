@@ -1,0 +1,19 @@
+229_DEC_RSX-11D_V62_KIT_1.TXT
+
+RSX-11D V6.2     Kit copy #1
+BRU of 9 ".TPC" and ".LIS" Files of
+RSX-11D v6.2 Distribution and Source tapes,
+FORTRAN IV v01c Binary and Source, and
+BASIC-11 Y02-04 Field Test kit.
+
+BRU Format   1600 BPI
+
+Original tapes 1977
+Copied 20-May-1987
+
+Tape dump starting to
+DKA300:[TPC_IMAGES.DEC]229_DEC_RSX-11D_V62_KIT_1.TPC;
+File marks: 3   Records: 4655    CPU TIME = 0:00:00.45
+Starting verification pass
+
+$

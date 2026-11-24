@@ -1,0 +1,24 @@
+#!/bin/bash
+
+fileno=`./000 $1`
+if [ "$fileno" == "" ];
+then
+   exit
+fi
+
+cp ./files_extracted_from_D62BOOT_TPC/large_files/D${fileno}.TPC .
+
+dd if=D${fileno}.TPC of=H${fileno}.TPC bs=1 count=20 2>/dev/null
+dd if=D${fileno}.TPC of=R${fileno}.raw bs=1 skip=20 2>/dev/null
+
+cp ./patch_lists/patch.${fileno} .
+./rawpat ${fileno}
+
+./enblock_tpc 4096 <R${fileno}.raw >R${fileno}.TPC
+
+cat H${fileno}.TPC R${fileno}.TPC EOT_TPC >F${fileno}.TPC
+
+mv F${fileno}.TPC ./patched_and_4K-reblocked_files_from_D62BOOT_TPC
+rm D${fileno}.TPC H${fileno}.TPC R${fileno}.TPC R${fileno}.raw
+rm patch.$fileno
+

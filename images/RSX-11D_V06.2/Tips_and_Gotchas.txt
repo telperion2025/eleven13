@@ -1,0 +1,762 @@
+This distribution tape by default creates a system
+for a PDP-11/40 with 48K **words** (96 Kbytes) of memory.
+The sample SimH config file provided attaches an RP06
+as a system disk, so you answer the initial questions
+(upon booting from the tape):
+
+SYSTEM DISK: RP06
+LOAD DISK ON DB0 WRITE ENABLED
+TYPE 'CR' WHEN READY?
+FORMAT DISK? NO
+RUN 'BADBLOCKS'? NO
+INITIALISE SYSTEM DISK? YES
+STANDARD VOLUME INITIALISATION? YES
+
+After copying the contents of the distribution
+tape to disk, Sysgen Phase 1 starts, taking its
+input from command file [11,17]RP06L48K.CMD
+(the 'L' means "line clock"; 'P' would be
+"programmable clock").  There are other
+command files in that directory for other configurations:
+RP04P48K.CMD, RK05L48K.CMD, and similar.
+
+---------------------------------------------------
+
+GOTCHA #1:  The distribution tape purports to be usable with an
+MM: (SimH tu, Massbus) or MT: (SimH tm, Unibus) tape
+drive.  That's fine, but if you choose tm (MT:), you'll
+get to a point (following the "CPY" from tape to disk),
+where one of two things will happen.  Either you'll see
+this output sequence (remember, this would be booting from a tm (MT:)
+tape drive, with tu (MM:) disabled in the SimH config file):
+
+UNL MT
+UNL MM
+UNL MM.... -- NODE FOR EXIT UNAVAILABLE
+...
+REM MM....,MT....,...INX,...UNL,...UFX,...RED,...INS
+REM -- TASK MM.... HAS NONZERO POOL USAGE COUNT
+SG1 @[11,17]RP06L48K
+<and off we go>
+
+or else you'll get:
+
+UNL MT
+UNL MM
+
+CRASH - NO CRASH MODULE RESIDENT
+
+HALT instruction, PC: 035622 (JMP 35676)
+sim>
+
+Which of these occurs seems to depend on apparently
+unrelated details of the SimH config file, like
+which other devices happen to be disabled.
+(With the SimH config file provided, you'll always
+get the crash if you try to use tm.)
+
+But if you use a tu (MM:) drive, you always get:
+
+UNL MT
+UNL MM
+...
+REM MM....,MT....,...INX,...UNL,...UFX,...RED,...INS
+SG1 @[11,17]RP06L48K
+<and off we go>
+
+So just use the tu (MM:) tape drive, as in the provided
+SimH config file, and spare yourself the error messages
+**and** the possibility of a crash.
+
+---------------------------------------------------
+
+GOTCHA #2:  When the initial sequence after booting from tape
+gets to the point of copying the distribution files from tape
+to disk:
+
+CPY MM:=SY:
+
+CPY -- STARTING COPY
+
+. . .and then, if all goes well:
+
+CPY -- COPY COMPLETE (ALLOW TAPE TO REWIND)
+
+. . .the "CPY" can seem to be taking a long time.
+Be patient, do not panic.  If however, the "CPY" really
+does seem to be taking a ridiculously long time
+(unless you've turned on throttling in your SimH
+config file, in which case it **will** take a ridiculously
+long time), then that's a sign that either the
+D62BOOT_patched.TPC tape image is corrupt or something else
+untoward has happened.  Try starting over, is the
+best I can suggest.
+
+---------------------------------------------------
+
+GOTCHA #3:  When setting up a system by booting from the distribution
+tape, Sysgen Phase 1 is supposed to transition automatically
+to Sysgen Phase 2, thus:
+
+. . .
+/
+DPAR=GEN
+SY=DB0
+/
+INS=SYDISK,[11,1]DB
+INS=GEN,[1,1]SYSRES/LI/ACC=RO
+INS=GEN,[1,1]TTLIBA/LI
+INS=GEN,[1,1]TTLIBB/LI
+INS=GEN,[11,1]TT
+INS=GEN,[11,17]SGN2,[11,1]MOU,[11,1]INS/UIC=[1,1],[11,1]FCP
+//
+SGN>END OF PHASE 1
+BOO [11,17]RSX/WB
+BOO [11,17]RSX
+*** SYSTEM GENERATION PHASE 2 ***
+MOU SY:/OVR
+MOUNT-**VOLUME INFORMATION**
+        DEVICE  =DB0
+        CLASS   =FILE 11
+        LABEL   =RSXSYS
+        UIC     =[1,1]
+        ACCESS  =[RWED,RWED,RWED,RWED]
+        CHARAC  =[]
+INS [11,1]TKTN
+INS [11,1]MCR/UIC=[1,1]
+INS [11,1]MFT
+INS [11,1]MCRERR
+INS [11,1]ACCLOG
+INS [11,1]ACCRPT
+. . . (and so on through the rest of the alphabet)
+
+Under circumstances poorly understood (by me),
+this transition does not always occur smoothly.
+Instead, what sometimes happens is:
+
+. . .
+INS=GEN,[1,1]TTLIBB/LI
+INS=GEN,[11,1]TT
+INS=GEN,[11,17]SGN2,[11,1]MOU,[11,1]INS/UIC=[1,1],[11,1]FCP
+//
+INS>
+
+. . .and the procedure hangs there, apparently waiting
+for a response.  If you just Ctrl-Z out of the INS>, then you get:
+
+INS>^Z
+
+SG1 -- *FATAL*-STD/GCD ENTRY NOT FOUND FOR A TASK/SGA AFTER INSTALL
+
+SGN>END OF PHASE 1
+BOO[11,17]RSX/WB
+BOO -- QIO TO MO FAILED - CODE = -06 MESSAGE NO. = 016
+
+. . .and then the PDP-11 hangs completely.
+
+Despite the fact that a boot block might seem to have been
+saved to disk, you can't reboot from that disk, either.
+
+If, however, in response to the INS> prompt you manually type
+the sequence of installs from the Phase 1 command file,
+starting with SYSRES (if you get an error message along
+the way such as
+INV -- GLOBAL AREA NAME ALREADY IN USE SYSRES.TSK;1
+in response to one or more of these, just ignore it and
+go on to the next one), e.g.:
+
+INS>[1,1]SYSRES/LI/ACC=RO
+INS>[1,1]TTLIBA/LI
+INS>[1,1]TTLIBB/LI
+INS>[11,1]TT
+INS>[11,17]SGN2
+INS>[11,1]MOU
+INS>[11,1]INS/UIC=[1,1]
+INS>[11,1]FCP
+^Z
+
+...then you'll get a series of error messages, but
+following the messages things will continue apparently
+normally, e.g.
+
+INV -- GLOBAL AREA NAME ALREADY IN USE TTLIBA.TSK;1
+INV -- GLOBAL AREA NAME ALREADY IN USE TTLIBB.TSK;1
+INV -- TASK NAME ALREADY IN USE FILE TT.TSK;1
+INV -- TASK NAME ALREADY IN USE SGN2.TSK;1
+INV -- TASK NAME ALREADY IN USE FILE MOU.TSK;1
+INV -- TASK NAME ALREADY IN USE FILE INS.TSK;1
+INV -- TASK NAME ALREADY IN USE FILE FCP.TSK;1
+SGN>END OF PHASE I
+BOO [11,17]RSX
+BOO [11,17]RSX
+*** SYSTEM GENERATION PHASE 2 ***
+MOU SY:/OVR
+MOUNT-**VOLUME INFORMATION**
+...
+INS [11,1]TKTN
+INS [11,1]MCR/UIC=[1,1]
+INS [11,1]MFT
+. . .
+
+I do not know if the above workaround is "safe"
+to do.
+
+The above phenomenon may have something to do
+with synchronization, or timing, or a race condition,
+because it seems to occur very frequently (almost always,
+in fact) on a heavily-loaded (Windows 10, in my case) system,
+such as when I have a YouTube video running in
+a browser on the same computer that SimH is
+running on.  Closing all other (active) programs
+(not necessarily terminal windows)
+**usually** (not always) allows the transition
+from Phase 1 to Phase 2 to happen without
+the "INS>" glitch.
+
+A second circumstance in which the "INS>" glitch **always**
+seems to occur is if you repeat a sysgen from the beginning,
+(starting from tape) and re-use a disk image rather than
+deleting it and having SimH create a new empty one.  In
+this case, you may be able to use the workaround given
+above (manually installing things from the INS> prompt),
+but you may see additional errors such as
+"OPEN FAILURE FILE SYSRES.TSK;1".  This creates the
+unsettling suspicion that something may be wrong
+with the file system, even though the initial sequence claimed
+to be "INITIALISE-ing" the disk.  But if you (once again) ignore
+the error message(s), things **seem** to go on
+successfully.  However, I'd suggest always starting
+with a blank disk image.
+
+A third, and unfortunate, circumstance occurred when I
+tried to do a sysgen on a Raspberry Pi (Pi 4 4GB running
+64-bit Raspberry Pi OS, with SimH downloaded and built fresh from
+GitHub).  I could not get past the "INS>"
+glitch at the end of Phase 1 **at all**.  (I tried throttling,
+by the way, at various speeds: 1M, 500K, 100K; nothing helped,
+and the only result was to make things painfully slow.)
+Trying the manual workaround gave a result suggesting that
+earlier commands in the Phase 1 process had not "registered".
+I got error messages such as:
+INV -- UNDEFINED PARTITION FILE SYSRES.TSK;1
+Also, you can't use a disk image generated on an x86 machine
+on a Raspberry Pi.  (It boots and starts Sysgen Phase 2,
+but gets I/O errors on all *.TSK files it attempts to INS.
+A byte-swap problem?  The same disk image ftp'd **back** to
+an x86 machine from the Pi works OK.)  So I guess Raspberry Pi
+users are out of luck.
+
+I've also tried this distribution on Linux (also with SimH built
+fresh from source) -- SuSE Tumbleweed 64-bit fully updated as
+of 12 April 2021 -- but only on virtual machines running
+on top of Windows 10.  With VMWare Workstation
+(16.1.0 build-17198959) things go swimmingly -- no "INS>"
+glitch at the end of Phase 1, and things go smoothly
+through Phase 2 and SAVing the system at the end.
+With the same Linux on Oracle VirtualBox (6.1.18 r142142)
+on the same Windows 10 machine, things are more inconsistent.
+Sometimes the sysgen zips right along as with VMware.
+Other times, with VirtualBox, I get the "INS>"
+glitch at the end of Phase 1; or Phase 2
+slows to a crawl, finally freezing altogether; and
+sometimes the system freezes at the very end, during
+the SAV.  (And in one case, I saw the "CPY" at the
+beginning hang, with VirtualBox.)  I do not know the reason
+for these discrepancies.  So, as they say, Your Mileage May Vary.
+I'd guess that with Linux on bare metal, things might
+go more predictably well, just as they go a bit more
+predictably well on Windows 10 bare metal (in the MSYS2
+Unix-y environment that I'm using, with SimH built under
+MinGW in June, 2020).
+
+---------------------------------------------------
+
+GOTCHA #4:  Sysgen Phase 2 ends with a message:
+
+. . .
+INS [11,1]ZAP
+RED SY=SP
+RED  -- WARNING:  HANDLER NOT RESIDENT
+*** END OF SYSTEM GENERATION PHASE 2 ***
+
+This doesn't seem significant.  It doesn't
+appear if you comment out the "RED SY=SP"
+in [11,17]SYSBLD.CMD and re-run the sysgen.
+[Edit: But don't do that.  "SP" is the spooler
+pseudo-device, and REDirecting it (to the system
+disk, in this case) indicates where to
+put [1,4]SPRQUEUE.SYS;1 , which is necessary
+for automatic output spooling.]
+
+---------------------------------------------------
+
+GOTCHA #5:  The terminal doesn't behave as
+you're used to with RSX-11M.  At the end
+of Phase 2, the system seems to have hung, but
+that's because you have to **request** the
+MCR by typing Ctrl-C.  The MCR> prompt
+will continue to appear as long as you're
+typing actual commands (PIP..., etc.), but
+if you just type a <Return>, then the cursor
+will go flush left on the same line as the
+MCR> prompt and the terminal will "go to sleep"
+again, and you have to type another Ctrl-C
+to wake it up.  It will also go to sleep if
+the MCR> prompt times out because you haven't
+typed anything in a while.
+
+If you want to discard a line you've typed in
+error, use Ctrl-U, **not** Ctrl-C.
+
+---------------------------------------------------
+
+GOTCHA #6:  When you use TIM to set the date
+and time, you **have** to give the seconds, or
+it's a syntax error.  E.g.,
+
+MCR>TIM 11-APR-99 21:39
+TIM -- SYNTAX ERROR
+MCR>TIM 11-APR-99 21:39:00
+MCR>
+
+---------------------------------------------------
+
+GOTCHA #7:  Finalizing the system following
+Phase 2 should go something like this:
+
+MCR>SAV
+SAV -- *FATAL* DB00 IS STILL MOUNTED
+MCR>DMO DB0:
+F11ACP --  DB0: ** DISMOUNT COMPLETE **
+MCR>SAV
+
+
+  48K (WORD) RSX-11D V06.2
+
+
+MCR>
+
+It is suggested (in the comments at the end of
+[11,17]SYSBLD.CMD -- see "NOTE 2") that before you do the SAV,
+you should
+LOA MO     ("MESSAGE OUTPUT (PSEUDO) HANDLER MO.... )
+LOA LP     ("LINE PRINTER HANDLER")
+RED LP=CL  (redirect the "CONSOLE LISTING DEVICE")
+. . .to load these handlers.  If these are not loaded,
+you will get error messages from programs that are
+trying to queue output to them.  [But you probably,
+in fact, **don't** want to load these handlers, at
+least not just yet -- see GOTCHA #10 below.]
+
+---------------------------------------------------
+
+GOTCHA #8:  When you reboot from the saved
+system, you have to mount the system disk
+before you can access it.
+
+  48K (WORD) RSX-11D V06.2
+
+
+MCR>PIP /LI
+PIP -- ERROR CODE 20.
+SY:[1,1]
+MCR>MOU DB0:/OVR
+MOUNT-**VOLUME INFORMATION**
+   ...
+MCR>PIP /LI
+
+DIRECTORY DB0:[1,1]
+11-APR-99 21:38
+
+RSXMAC.SML;1       194.      12-JUL-77 14:28
+. . .
+
+---------------------------------------------------
+
+GOTCHA #9:  You're stuck with the console unless/until
+you edit [311,114]CONFIG.MAC and [311,114]PARAMS.MAC,
+rebuild the terminal handler [11,1]TT.TSK
+(and libraries TTLIBA, TTLIBB), modify the Phase 1
+command file, and re-run sysgen from Phase 1.
+
+This (or at least the MACRO-11 file part) is described in the
+"RSX-11D System Generation Reference Manual",
+(DEC Order No. DEC-11-OXDIA-E-D revised February 1977,
+available as DEC-11-OXDIA-E-sysgen_Feb77.pdf at
+http://bitsavers.org/pdf/dec/pdp11/rsx11/RSX11D_V6.2_Feb77/4_SysMaint/
+and one of the few RSX-11D manuals available on-line);
+sections 2.4.1, 2.4.3
+and Appendix A, sections A.1 and A.2
+
+The default serial interface "INTF 0" defined in CONFIG.MAC
+straight off of the distribution tape has type
+"DL" (DL11, not strictly a supported device type in SimH),
+but that's just for the console and SimH doesn't seem
+to care about that. But to get "real" terminals (telnet-accessible,
+via SimH) you want to add an "INTF 1" with type, say, "DZ",
+and with address and vector set to something in the ranges
+reported by the SimH "show dz" command, ending up with
+(and leaving the original INTF 0 line untouched):
+
+INTF    0,DL,177560,060
+INTF    1,DZ,160100,300
+
+Also CONFIG.MAC starts out only having one "TERM 0" defined,
+with type L30S.  Again, leave that one alone (it's the console)
+and add more TERMs (on INTF 1; numbered 1 and up, with
+sublines 0 and up); and also make the TERMs have types set
+to something more modern like "VT52":
+
+TERM    0,0,  ,L30S
+TERM    1,1,0 ,VT52,<9600>
+TERM    2,1,1 ,VT52,<9600>
+TERM    3,1,2 ,VT52,<9600>
+TERM    4,1,3 ,VT52,<9600>
+TERM    5,1,4 ,VT52,<9600>
+TERM    6,1,5 ,VT52,<9600>
+TERM    7,1,6 ,VT52,<9600>
+TERM    10,1,7,VT52,<9600>     (These are octal numbers, so "10" is 8.)
+
+You also need to edit [311,114]PARAMS.MAC and change:
+U$$NTS  =1.
+. . .to:
+U$$NTS  =9.
+. . .(or however many terminals you want, including
+the console).
+
+Also in [311,114]PARAMS.MAC, change:
+
+D$$Z11  =0.
+. . .to:
+D$$Z11  =1.
+
+And while was at it, I also changed,
+in [311,114]PARAMS.MAC:
+
+B$$22 from 0 to 1  [22-BIT SUPPORT REQUIRED (MUST BE 1
+                    ON PDP-11/70 CONFIGURATIONS WITH MORE
+                    THAN 124K (words, presumably) OF MEMORY]
+B$$AW from 0 to 1  ['BELLS AND WHISTLES'.  THIS SHOULD BE 1
+                    UNLESS SPACE IS AT A PREMIUM.  IF IT IS
+                    ZERO, MANY USEFUL BUT SPACE-CONSUMING
+                    FEATURES, SUCH AS 'SMART' RUBOUT,
+                    TYPE-AHEAD CONTROL-R AND SO ON ARE
+                    OMITTED.]
+
+Then you need to rebuild (both assemble and link) the new
+TT handler.  Running:
+
+SET /UIC=[1,1]
+MAC @[311,114]TTMAC
+
+. . .to reassemble the terminal-related MACRO-11 source files
+(the *.OBJ files go in [11,114]).
+
+NOTE: There are significant issues involving MAC and its
+interaction with the (de)spooler and the line printer handler.
+Rather than inserting their description in an aside here,
+I've put them in their own GOTCHA #10, which I strongly recommend
+reading before continuing here.
+
+After you've managed to get the MAC... command to generate
+the required OBJ files in [11,114], you link the
+new TT handler by running:
+
+TKB @[11,114]TTTKB
+
+. . .to rebuild TTLIBA (STB and TSK), TTLIBB (STB and TSK),
+and TT.TSK.  There will be four error messages from TKB
+(apparently these can be ignored -- see the NOTE on p. 2-15
+of the manual):
+
+TKB -- *DIAG*-32 UNDEFINED SYMBOLS SEGMENT TT
+TKB -- *DIAG*-52 UNDEFINED SYMBOLS SEGMENT INIT
+TKB -- *DIAG*-82 UNDEFINED SYMBOLS SEGMENT IDLE
+TKB -- *DIAG*-90 UNDEFINED SYMBOLS SEGMENT LINES
+
+The comment in [311,114]PARAMS.MAC next to
+U$$NTS says:
+"MAXIMUM NUMBER OF TERMINALS TO BE SERVICED.  THIS
+SHOULD BE THE SAME AS THE NUMBER OF TERMINALS SPECIFIED
+IN THE SYSGEN FILE USED IN BASIC SYSTEM GENERATION
+PHASE 1."
+
+Looking at the Phase 1 command file ([11,17]RP06L48K.CMD),
+one of the device directives is:
+DEV=TT0,CONSOL
+so that DEV=TT0 directive, together with the comment in PARAMS.MAC,
+suggested to me that it's also necessary to add DEV= directives
+to the Phase 1 sysgen command file something like:
+DEV=TT1,... , DEV=TT2,... , etc.
+
+In Appendix B of the manual (p. B-2), there's a printout
+of a "device characteristics" file, and just above
+the entry for "CONSOL", there's an entry for "TERM".
+
+So I made a copy of [11,17]RP06L48K.CMD (called
+[11,17]MYGEN.CMD) and edited it to contain entries
+DEV=TT1,TERM
+DEV=TT2,TERM
+...
+DEV=TT7,TERM
+DEV=TT10,TERM   (the numbers are presumably octal,
+                 so this is terminal 8)
+
+While I was at it, I changed the complement of
+disk devices to:
+
+DEV=DK0,RK05
+DEV=DK1,RK05
+DEV=DB0,RP06
+DEV=DB1,RP06
+DEV=DB2,RP06
+DEV=DB3,RP06
+
+Sysgen Phase 1 (SGN1) swallowed all these directives without error,
+so presumably my guess about "DEV=TTn,TERM" was correct.
+
+Then you have to re-do the sysgen (to install the
+new TTLIBA.TSK, TTLIBB.TSK and TT.TSK and process
+the new DEV= directives).
+
+This is the formula for doing that (note: this can
+be done either before or after the system has been
+SAVed; if afterwards, then you'll have to SAV again after
+the repeated Phase 2):
+
+MCR>INS [11,1]INV
+MCR>INS [11,1]SGN1/TASK=...SGN
+MCR>SGN @[11,17]RP06L48K  (or MCR>SGN @[11,17]MYGEN)
+. . .
+SGN1>END OF PHASE 1
+MCR>BOO [11,17]RSX/WB
+MCR>BOO [11,17]RSX
+*** SYSTEM GENERATION PHASE 2 ***
+. . .
+
+And after all that. . .  I did indeed have
+terminals (and new RP06 disk drives to INI,
+MOU and use; but see GOTCHA #11), in addition
+to the console.
+
+---------------------------------------------------
+
+GOTCHA #10: MAC @[311,114]TTMAC gives, when run for the first time,
+**without** having issued "LOA LP" first
+(either on a virgin (unSAVed) system; or
+on a SAVed system without having issued "LOA LP" before the
+SAV and without issuing "LOA LP" before running MAC):
+
+SPR2.. -- QIOW$ FAILURE ON DEVICE LP0: - DSW = -6. - DEVICE IN WAIT
+
+Then you have to "Ctrl-C <Return> Ctrl-C" (really) to get MCR back,
+and then "ABO SPR2.." then "Ctrl-C <Return> Ctrl-C" (again)
+to get MCR back.
+
+SPR2 is the "DESPOOLER TASK", according to the comments
+in [11,17]SYSBLD.CMD .
+
+If you "PIP [11,114]*.*;* /LI", you will see that this error
+has **not** prevented MAC from running and creating
+*.OBJ files in [11,114].
+
+If you don't "ABO SPR2..", then if you issue the MAC...
+again, it seems to just hang (no MCR prompt comes back), and
+if you Ctrl-C (just once) to get the MCR prompt back, you'll
+see that it has in fact **not** run (it has not created more
+OBJ files in [11,114]).
+
+However -- and this is really strange -- if you then type
+"ABO SPR2.." (and then "Ctrl-C <Return> Ctrl-C" to get
+the MCR prompt back), followed by "PIP [11,114]*.*;* /LI",
+then the **PIP** command will seem to hang for a moment,
+but then it will complete, **and** the contents
+of [11,114] (containing a new set of *.OBJ files) will
+show that the apparent PIP delay happened
+because the earlier (stuck) MAC command was **also**
+(finally) running (ahead of the PIP).
+
+Once you have issued the "ABO SPR2..", you can then issue as
+many subsequent MAC... commands as you like, and
+they will all finish normally.  The MCR prompt
+will come back normally (without any extra keystrokes),
+and a new set of *.OBJ files will appear in [11,114]
+as a result of each MAC... command.
+
+In all of the above cases, no output appears in your
+printer.txt file.
+
+However, in both cases above, if you type "LOA LP"
+**before** running the MAC... command, then MAC finishes without
+error, and output **does** appear on the line printer
+(the printer.txt -- or whatever you've called it -- file you have
+attached in SimH).
+NOTE: Apparently, only the first line in [311,114]TTMAC.CMD:
+
+,[211,114]PARCHK=[311,114]PARAMS,PARCHK
+
+. . .sends output to the line printer (and does not itself
+create an OBJ file); so printer.txt is not,
+in fact, missing output, despite one's first impression.
+
+On a "properly" SAVed system, following the
+instructions at the end of [11,17]SYSBLD.CMD
+(issuing both "LOA MO" and "LOA LP" before the SAV),
+MAC doesn't seem to run at all.  The cursor returns
+flush left on the same line as ">MCR MAC@[311,114]TTMAC",
+and if you Ctrl-C to get the MCR prompt and then run PIP,
+you see that no [11,114]*.OBJ files have been created.
+
+However, if you perform **only** the "LOA LP"
+(without an accompanying "LOA MO") before the SAV; then
+following the SAV, MAC... **will** run properly without any
+errors, and the [11,144]*.OBJ files will be
+created as expected (**and** line printer output will
+be sent to printer.txt, as expected).
+
+BUT, if you issue "LOA LP" ahead of the MAC...
+(on **any** of the above stages of the system),
+you can only issue the "MAC @[311,114]TTMAC" command
+successfully **once**.  Subsequent MAC... commands
+will fail similarly to the way that the first one
+fails on the "properly" SAVed system -- **except**
+that, while no additional OBJ files are created,
+the printer.txt line printer contents
+**are** added to -- but only following the second MAC...
+command.  A third (and subsequent) MAC... command(s)
+create **no** *.OBJ or line printer output.
+
+Finally, if you issue "LOA LP" ahead of the MAC...
+(on **any** of the above systems), and then "use up"
+your one "allowed" "MAC @[311,114]TTMAC" command,
+then a subsequent "TKB @[11,114]TTTKB" command will
+hang and fail to produce any *.TSK and *.STB files.
+
+So rebuilding the TT handler needs to happen (as
+far as I know at the moment, without knowing the
+cause of all this) **without** having the
+LP handler loaded.
+
+Update:  It turned out that all the above difficulties
+were due to a shortage of memory.  When I remedied that
+(see GOTCHA #12 below) I had no more difficulties
+with hanging commands.  However, running the
+MAC @[311,114]TTMAC command no longer automatically
+invokes SPR2 to send PARCHK.LST to the line printer
+(despite having invoked "LOA LP").  The *.LST files are
+still created (in [211,114]),  but the output spooler no
+longer automatically prints them.  It's possible that this is,
+in fact, the correct behavior -- it may be necessary to
+explicitly start the spooler (via the OPR command, presumably).
+But in the absence of a manual, I don't know how to do this.
+
+Edit:  OK, "OPR LP:/RS" starts an instance of "SPR2.."
+("/RS" is "resume"; "/ST" is "stop" -- these are in the
+"IAS Version 3.4 System Management Guide").  But I'm still
+not seeing anything on the line printer.
+
+Edit2:  OK, got it.  I just had to delete the old
+[1,4]SPRQUEUE.SYS;1
+Now,
+,[211,114]PARCHK=[311,114]PARAMS,PARCHK
+starts up SPR2.. automatically, and the file
+[211,114]PARCHK.LST is spooled to the line printer
+(and then deleted).
+
+---------------------------------------------------
+
+GOTCHA #11:  With RSX-11M on SimH, it's possible to
+type Ctrl-E to get to the SimH command processor, attach
+a disk image file to a disk device, and then resume the
+emulator.  If you try this with RSX-11D, the system
+will **not** resume -- it will hang.
+
+So if you want to use a disk, it has to be attached
+in your SimH config file before you boot.
+
+---------------------------------------------------
+
+GOTCHA #12:  Memory.  The System Generation manual
+(on p. 5-12) states "If the hardware is a PDP-11/70,
+the system can be generated for up to 1920K words."
+I have successfully used a SimH config file with
+"set cpu 11/70, 4M", and edited a sysgen Phase 1
+command file to contain directives:
+
+PDP11=70,1920K
+/
+SCOM=,12K,96    (the System Common area, maximum size 12K words, p. 4-5)
+...
+PAR=GEN,,96K,S
+
+If the general partition remains:
+
+PAR=GEN,,*,S
+
+. . .meaning that the size of the partition should
+be automatically expanded to fill available memory
+(see p. 4-7), then something seems to go wrong with
+the arithmetic -- the system seems to think it has
+**no** available memory.  Using an explicit 96K, as above,
+works, and seems to provide a comfortable amount of memory.
+A single partition seems to have an upper limit on size
+(you can, of course, define multiple partitions if
+you want to fill the memory of an 11/70), but the manual
+is not clear on what this upper limit might be.
+
+Nevertheless, even with the explicit 96K-word
+GEN partition above, the system (after the SAV)
+boots with the banner:
+
+65532K (WORD) RSX-11D V06.2
+
+SAV -- PARTITION GEN    EXPANDED BY   3968*32 (DEC) WORDS
+
+A 128-megabyte PDP-11!
+
+There is a program included with RSX-11D called "DEMO".
+This is a predecessor of "RMD" in RSX-11M, and is
+a useful way to see what's going on.  Of course,
+you'll need to have set up your terminals (as in
+GOTCHA #9 above), and also, you need to use a terminal
+emulation program that has really accurate VT-52
+emulation.  The usual VT-100-ish free terminal emulators,
+such as PuTTY, aren't up to this.  A commercial
+terminal emulator I bought a few years ago, called AlphaCom
+https://en.wikipedia.org/wiki/AlphaCom
+works well.  (I originally went looking for something
+like this because I wanted to try out the
+VT50PY system monitor in RSTS.)
+
+---------------------------------------------------
+
+GOTCHA #13:  This is actually a tip, rather than a GOTCHA.
+RSX-11D comes with the EDI line editor, but if you'd prefer
+to use EDT -- if you're going to try editing the terminal-handler
+MACRO-11 source files [311,114]CONFIG.MAC and [311,114]PARAMS.MAC,
+or the Phase 1 system generation file [11,17]RP06L48K.CMD
+(or your own copy of it) -- you can mount your RSX-11D system
+disk on an RSX-11M system and use EDT on RSX-11M to edit
+those files.  That's what I did.
+
+---------------------------------------------------
+
+GOTCHA #14:  The tape drive. It's there, anyway:
+
+MCR>MOU MM0:
+MOU -- HANDLER TASK NOT RESIDENT
+MCR>LOA MM
+MCR>MOU MM0:
+MOU -- ACP TASK IS NOT INSTALLED
+MCR>INS [11,1]MTAACP
+MCR>MOU MM0:
+MTAACP -- MM0: ** DISMOUNT COMPLETE **
+MOU -- VOLUME IS NOT ANSI FORMAT
+MCR>MOU MM0:/FOR
+MTAACP -- MM0: ** DISMOUNT COMPLETE **
+MOU -- SYNTAX ERROR
+MCR>FLX MM0:[*,*]*.*/DI
+FLX --ERROR DURING DIRECTORY I/O
+MM0:[*,*]*.*
+MCR>
+

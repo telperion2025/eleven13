@@ -1,0 +1,25 @@
+#!/bin/bash
+
+rm ../D62BOOT_patched.TPC 2>/dev/null
+
+cp ./files_extracted_from_D62BOOT_TPC/boot_files/D[0-9][0-9][0-9].TPC .
+cp ./files_extracted_from_D62BOOT_TPC/small_files/D[0-9][0-9][0-9].TPC .
+cp ./patched_and_4K-reblocked_files_from_D62BOOT_TPC/F[0-9][0-9][0-9].TPC .
+
+for x in [DF][0-9][0-9][0-9].TPC
+do
+  fnum=`echo $x | sed -e 's/^[DF]//'`
+  mv $x $fnum
+done
+
+ls -1 [0-9][0-9][0-9].TPC >files.list
+sort -o files.list files.list
+
+for x in `cat files.list`
+do
+  cat $x >>../D62BOOT_patched.TPC
+done
+cat EOT_TPC >>../D62BOOT_patched.TPC
+
+rm [0-9][0-9][0-9].TPC files.list
+

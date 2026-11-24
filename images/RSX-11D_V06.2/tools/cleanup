@@ -1,0 +1,13 @@
+#! /bin/bash
+
+rm ./bootx ./bootx.exe ./bootx.out 2>/dev/null
+rm ./000 ./000.exe 2>/dev/null
+rm ./w5 ./w5.exe 2>/dev/null
+rm ./enblock_tpc ./enblock_tpc.exe 2>/dev/null
+rm ./rawpat ./rawpat.exe 2>/dev/null
+
+rm -rf ./files_extracted_from_D62BOOT_TPC
+rm -rf ./patches_as_text
+rm -rf ./patch_lists
+rm -rf ./patched_and_4K-reblocked_files_from_D62BOOT_TPC
+

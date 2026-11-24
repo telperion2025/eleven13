@@ -1,0 +1,17 @@
+#!/bin/bash
+
+echo -n >patches.list
+for x in ./patches_as_text/*.*.*.txt
+do
+   fileno=`echo $x | sed -e 's/^.*\.\([0-9].*$\)/\1/' | sed -e 's/[^0-9]*$//'`
+   echo $fileno >>patches.list
+done
+sort -o patches.list patches.list
+
+for x in `cat patches.list`
+do
+   echo "*********** GENERATING PATCH $x *************"
+   ./patx $x
+done
+
+rm patches.list

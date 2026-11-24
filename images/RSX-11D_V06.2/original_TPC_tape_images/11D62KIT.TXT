@@ -1,0 +1,78 @@
+    This tape contains ".TPC" container files of the
+    RSX-11D version 6.2 distribution tapes, plus 
+    Fortran IV v01-C and BASIC-11 Y02-04 (field test).
+
+
+    File Name       Label of original tape
+
+    D62UTIL.TPC     DEC-11-OXUSA-C-MA9
+                    RSX-11D V6.2 UTIL SRC MT9
+                    Utility Sources 1 of 1
+                    DOS Format   800 BPI
+                    Files:  14-Dec-76
+                    Manuf:  24-Jun-77
+                    Copied:  8-Nov-77
+
+    D62OBJ.TPC      DEC-11-OX62A-C-MB9
+                    RSX-11D V6.2 OBJ BIN MT9
+                    Object files 1 of 1
+                    DOS Format   800 BPI
+                    Files:   9-Feb-77
+                    Manuf:  16-May-77
+                    Copied:  8-Nov-77
+
+    D62EXEC1.TPC    DEC-11-OR61A-C-MA9
+                    RSX-11D V6.2 EXEC SRC 1/2
+                    Executive Sources 1 of 2
+                    DOS Format   800 BPI
+                    Files:   9-Feb-77
+                    Manuf:  11-Jun-77
+                    Copied:  8-Nov-77
+
+    D62EXEC2.TPC    DEC-11-OR62A-C-MA9
+                    RSX-11D V6.2 EXEC SRC 2/2
+                    Executive Sources 2 of 2
+                    DOS Format   800 BPI
+                    Files:   9-Feb-77
+                    Manuf:  31-May-77
+                    Copied:  8-Nov-77
+
+    D62BOOT.TPC     DEC-11-OXV6A-E-MC9
+                    RSX-11D V6.2 BOOTABLE
+                    Bootable distribution tape
+                    DOS Format   800 BPI
+                    Files:  ??-???-77
+                    Manuf:   4-Aug-77
+                    Copied: 24-Oct-77
+
+    FOR01CBIN.TPC   DEC-11-LIFRA-A-MC9
+                    IAS/RSX-11 FORTRAN IV V01C
+                    Binary distribution
+                    DOS Format   800 BPI
+                    Files:  15-Mar-76
+                    Manuf:  21-Jun-77
+                    Copied:  9-Nov-77
+
+    FOR01CSRC.TPC   DEC-11-OXLSA-C-MA9
+                    F4 COMP SRC
+                    Fortran IV v01C Compiler Source
+                    DOS Format   800 BPI
+                    Files:  23-Feb-77
+                    Manuf:   7-Mar-77
+                    Copied:  8-Nov-77
+
+    FOR01CRTM.TPC   DEC-11-OX6RA-C-MA9
+                    FTNTME SRC
+                    Fortran IV v01C Runtime Source
+                    DOS Format   800 BPI
+                    Files:  11-Feb-77
+                    Manuf:  31-May-77
+                    Copied:  8-Nov-77
+
+    IBASICY02.TPC   DEC-11-????-?-MC9
+                    IAS BASIC Y02-04
+                    Field test BASIC interpreter
+                    DOS Format   800 BPI
+                    Files:  
+                    Manuf:  
+                    Copied:  9-Nov-77

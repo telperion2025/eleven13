@@ -1,0 +1,27 @@
+#!/bin/bash
+
+fileno=`./000 $1`
+if [ "$fileno" == "" ];
+then
+   exit
+fi
+
+cp ./patches_as_text/*.*.${fileno}.txt .
+
+egrep '^[0-9][0-9]* ' *.*.${fileno}.txt >prepatch.$fileno
+
+sed -e 's/^[^ ][^ ]*  *[^ ][^ ]*  *[^ ][^ ]*//' <prepatch.$fileno >prepatch1.$fileno
+
+sed -e 's/^ *\([0-9][0-9]*\) .*$/\1/' <prepatch1.$fileno >prepatch2.$fileno
+
+echo -n >patch.$fileno
+for repl in `cat prepatch2.$fileno`
+do
+   ./w5 $repl >>patch.$fileno
+   echo >>patch.$fileno
+done
+
+mv patch.$fileno ./patch_lists
+
+rm *.*.${fileno}.txt
+rm prepatch*.$fileno

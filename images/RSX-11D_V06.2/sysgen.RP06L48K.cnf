@@ -1,0 +1,31 @@
+set rq disabled
+set tq disabled
+set xq disabled
+
+set rl disabled
+set hk disabled
+set rx disabled
+
+set cpu 11/40, 96K
+
+set cpu idle
+set nothrottle
+
+
+;RP disk packs (RP06)
+
+set rp0 rp06
+attach rp0 disk_images/rsx11d_6_2.dsk
+
+
+attach lpt printer.txt
+
+set tm disabled
+set tu enabled
+attach tu0 -F TPC D62BOOT_patched.TPC
+
+set dz lines=8
+attach dz 2040
+
+boot tu0
+;boot rp0

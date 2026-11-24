@@ -1,0 +1,112 @@
+#! /bin/bash
+
+echo "Clean up any previously-generated files"
+
+rm ./D62BOOT_patched.TPC 2>/dev/null
+
+cd tools
+./cleanup
+
+echo
+echo "Generate some needed tools -- a C compiler is required for this"
+echo "(Other standard Unix-y tools are also needed: dd, sed, sort, etc.)"
+
+cc -o bootx bootx.c
+cc -o 000 000.c
+cc -o w5 w5.c
+cc -o enblock_tpc enblock_tpc.c
+cc -o rawpat rawpat.c
+
+echo
+echo "Extract all files from the damaged D62BOOT.TPC tape image"
+echo "(This takes a minute; be patient)"
+
+mkdir ./files_extracted_from_D62BOOT_TPC
+mkdir ./files_extracted_from_D62BOOT_TPC/boot_files
+mkdir ./files_extracted_from_D62BOOT_TPC/small_files
+mkdir ./files_extracted_from_D62BOOT_TPC/large_files
+./bootx 2>bootx.out
+
+echo
+echo "Sanity check. There should be:"
+echo "4 boot files"
+echo "92 small files"
+echo "102 large files (damaged on the original tape)"
+echo "(total 198 files)"
+
+boot_count=`ls -1 ./files_extracted_from_D62BOOT_TPC/boot_files/*.TPC | wc -l`
+small_count=`ls -1 ./files_extracted_from_D62BOOT_TPC/small_files/*.TPC | wc -l`
+large_count=`ls -1 ./files_extracted_from_D62BOOT_TPC/large_files/*.TPC | wc -l`
+if [[ "$boot_count" == "4" && "$small_count" == 92 && "$large_count" == 102 ]] ;
+then
+  echo
+  echo "Counts OK"
+else
+  echo
+  echo "Something's wrong!"
+  exit
+fi
+
+echo
+echo "Generate patch lists (only for the damaged files) from the corresponding text versions"
+echo "(This takes a minute; be patient)"
+
+tar xvf patches_as_text.tar >/dev/null
+mkdir ./patch_lists
+./patxall
+
+echo
+echo "Sanity check. There should be:"
+echo "102 patch lists (one for each file damaged on the original tape)"
+
+patch_count=`ls -1 ./patch_lists/patch.* | wc -l`
+if [[ "$patch_count" == "102" ]] ;
+then
+  echo
+  echo "Patch list count OK"
+else
+  echo
+  echo "Something's wrong!"
+  exit
+fi
+
+echo
+echo "Patch and reblock (at 4K) the damaged files from D62BOOT.TPC"
+echo "(This takes a minute; be patient)"
+
+mkdir ./patched_and_4K-reblocked_files_from_D62BOOT_TPC
+sleep 5
+./patchall
+
+echo
+echo "Sanity check. There should still be:"
+echo "4 boot files"
+echo "92 small files"
+echo "...and there should now be:"
+echo "102 patched and 4K-reblocked files"
+echo "(total 198 files)"
+
+boot_count=`ls -1 ./files_extracted_from_D62BOOT_TPC/boot_files/*.TPC | wc -l`
+small_count=`ls -1 ./files_extracted_from_D62BOOT_TPC/small_files/*.TPC | wc -l`
+B4K_count=`ls -1 ./patched_and_4K-reblocked_files_from_D62BOOT_TPC/*.TPC | wc -l`
+if [[ "$boot_count" == "4" && "$small_count" == 92 && "$B4K_count" == 102 ]] ;
+then
+  echo
+  echo "Patched and 4K-reblocked file count OK"
+else
+  echo
+  echo "Something's wrong!"
+  exit
+fi
+
+echo
+echo "Now assemble a patched version of D62BOOT.TPC (D62BOOT_patched.TPC)"
+echo "(This also takes a minute)"
+
+./tapegen
+
+./cleanup
+
+echo
+echo "Done!"
+
