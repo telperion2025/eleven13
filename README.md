@@ -6,17 +6,18 @@ The full engineering specification lives in **[DESIGN.md](DESIGN.md)** (Part A �
 
 ## Status
 
-**Milestone M1 is implemented** (see [docs/acceptance-checklist.md](docs/acceptance-checklist.md)):
+**All eight milestones M1–M8 are implemented** (see [docs/acceptance-checklist.md](docs/acceptance-checklist.md) for the spec §11 acceptance-criteria status after M8):
 
-- the complete package tree of DESIGN.md §3, with the §17 scaffolding in place;
-- the four machine profiles (`pdp11/config/profiles.py`) — single source of truth for per-model differences;
-- a deterministic system clock / event scheduler (`pdp11/system_clock.py`, spec §5.6);
-- the I/O page router (`pdp11/memory/io_page.py`);
-- the **11/20 (KD11-B) BASE instruction set** on flat memory: full address-mode machinery (all 8 modes with the PC special cases), single/double-operand word+byte groups, all 16 branches, JMP/JSR/RTS, EMT/TRAP/BPT/IOT, HALT/WAIT/RESET/RTI/RTT, condition-code operators, SWAB, traps (bus error 000004, reserved 000010, T-bit 000014, IOT 000020, EMT 000030, TRAP 000034), interrupt priority logic, and the §5.4 capability gate (the 11/20 consumes microcoded-only opcodes as no-ops);
-- golden CPU tests including the hand-assembled decrement-loop transcript (spec §22.2);
-- every device module implemented per spec §7 with register layouts cross-checked against SIMH (DL11, KW11-L, KW11-P, RK11/RK05, RX11, DZ11, RH70/RP06/RP07, TM11/TU10 via `--tape`, RL11 via `--rl`, PC11 via `--papertape`); the few remaining stubs (TQK11 MSCP layer, VT11 framebuffer, FIS, CIS CVT*/CRC) raise `NotImplementedError` with their spec section per §19.10 — never a silently-wrong fake.
+- **M1** — the complete package tree of DESIGN.md §3 with the §17 scaffolding, the four machine profiles (`pdp11/config/profiles.py`) as the single source of truth for per-model differences, the deterministic system clock / event scheduler (`pdp11/system_clock.py`, spec §5.6), the I/O page router (`pdp11/memory/io_page.py`), and the **11/20 (KD11-B) BASE instruction set**: full address-mode machinery (all 8 modes with the PC special cases), single/double-operand word+byte groups, all 16 branches, JMP/JSR/RTS, EMT/TRAP/BPT/IOT, HALT/WAIT/RESET/RTI/RTT, condition-code operators, SWAB, traps (bus error 000004, reserved 000010, T-bit 000014, IOT 000020, EMT 000030, TRAP 000034), interrupt priority logic, and the §5.4 capability gate (the 11/20 consumes microcoded-only opcodes as no-ops) — pinned by golden CPU tests including the hand-assembled decrement-loop transcript (spec §22.2);
+- **M2** — Unibus arbitration (NPR/BR daisy chain, cycle stealing), DL11 console, ODT front panel, M9312 boot-ROM loader, and the full machine run loop;
+- **M3** — KW11-L line clock, RK11/RK05 reference driver, raw disk containers (RT-11 boot path on the 11/20 verified end-to-end with a hand-built boot block);
+- **M4** — 11/03 Q-Bus profile (BIAK/BDMG), EIS on the KEF11, DZ11, RX11/RX01 (RX01 boot path on the 11/03 verified end-to-end);
+- **M5** — 11/70 MMU (3-mode I/D APR sets, MMR0–3), Unibus map, Massbus (RH70 + RP06/RP07), FP11;
+- **M6** — 11/94 (DCJ-11): CIS string ops, Q22-CD 22-bit map, J-11 MMU flavor, FPJ;
+- **M7** — VT100/VT52 terminal frontends and the LA36 hardcopy wired via `--console`, extended debugger, and the §11.1 diagnostic harness (4/4 profiles PASS on the built-in smoke diagnostic);
+- **M8** — session snapshots with byte-identical restore, power-fail/restore (vector 000024), SIMH `.tap`/raw container round-trips, performance instrumentation (~225k instructions/s measured on the 11/20 spin loop, `pdp11/tests/test_determinism.py`), and the CI coverage gates.
 
-M2 (Unibus + DL11 console + ODT) through M8 (snapshots, power-fail/restore, SIMH container round-trips) are fenced per DESIGN.md §22 and land in their own milestones.
+A handful of devices remain documented stubs raising `NotImplementedError` with their spec section per §19.10 — TQK11 (MSCP layer), the VT11 framebuffer, FIS, and the CIS CVT*/CRC ops — never silently-wrong fakes. Real DEC distribution media (RT-11 RX01/RK05/RL01 disks, RSX-11D kits and `.TPC` tapes) are checked in under `images/` for use with `--disk`.
 
 ## Install and run
 
@@ -30,16 +31,18 @@ uv run python -m pdp11.main --machine 11/20   # same thing, module form
 
 `--machine {11/03,11/20,11/70,11/94}` is **required** — there is no default, because behavior differs fundamentally per machine (spec §4.1). See [docs/user-manual.md](docs/user-manual.md) for the full CLI reference and [docs/operator-manual.md](docs/operator-manual.md) for per-machine power-on/boot behavior.
 
-> M1 note: the CLI currently assembles the profile and prints its skeleton notice; the full machine run loop (SystemBoard + DL11 + ODT) lands with M2, per the milestone fence. The CPU core is fully exercised by the test suite against flat RAM via `pdp11.board.SystemBoard`.
+> The full machine run loop (SystemBoard + bus + DL11 console + ODT) is live on all four profiles. Attach a disk container with `--disk` (format auto-detected per DESIGN.md §16 — real RT-11/RSX media are under `images/`), or supply a real M9312 boot PROM with `--bootrom`. Snapshots (`--save`/`--restore`) and power-fail injection (`--powerfail`/`--powerrestore`) are available per §15/§5.5.
 
 ## Quality gates (spec §18.2)
 
 ```sh
-make test     # uv run pytest            — 30 tests green at M1
+make test     # uv run pytest            — 291 tests green
 make lint     # uv run ruff check        — zero findings
 make type     # uv run mypy --strict ... — clean on cpu/ bus/ memory/ config/ + core modules
 make check    # all of the above
 ```
+
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `make check` on every PR and push to `main`, plus the per-package coverage floors of spec §18.2 (`cpu/` and `bus/` ≥ 90%, `devices/` ≥ 70%).
 
 ## Documentation
 
@@ -73,4 +76,4 @@ DESIGN.md         the binding specification
 
 ## License / provenance
 
-Behavioral claims cite the DEC references listed in [docs/references.md](docs/references.md); where the spec and this implementation had to be reconciled during M1, the deviation is noted in the PR description and in [docs/acceptance-checklist.md](docs/acceptance-checklist.md).
+Behavioral claims cite the DEC references listed in [docs/references.md](docs/references.md); where the spec and this implementation had to be reconciled during M1–M8, the deviation is noted in the PR description and in [docs/acceptance-checklist.md](docs/acceptance-checklist.md).
