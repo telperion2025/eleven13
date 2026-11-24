@@ -101,3 +101,27 @@ def test_open_disk_image_sniffs_format_by_size(tmp_path):
     blank = open_disk_image(str(tmp_path / "missing.rk05"))   # missing -> blank RK05
     assert blank.sector_size == RK05_SECTOR
     assert blank.sector_count == RK05_SECTORS
+
+
+def test_open_rl_autosize(tmp_path):
+    from pdp11.disk_images.container import (
+        RL01_SECTORS,
+        RL02_SECTORS,
+        RL_SECTOR,
+        open_rl,
+    )
+    rl01 = tmp_path / "a.rl01"
+    rl01.write_bytes(bytes(RL_SECTOR * RL01_SECTORS))
+    img = open_rl(str(rl01))
+    assert img.sector_count == RL01_SECTORS and img.sector_size == RL_SECTOR
+    # smaller file-structured pack: autosized to RL02, zero-padded (SIMH AUTOSIZE)
+    part = tmp_path / "part.rl"
+    part.write_bytes(b"\xab" * (RL_SECTOR * 100))
+    img2 = open_rl(str(part))
+    assert img2.sector_count == RL02_SECTORS
+    assert img2.read_sector(0) == b"\xab" * RL_SECTOR
+    assert img2.read_sector(100) == bytes(RL_SECTOR)
+    bad = tmp_path / "bad.rl"
+    bad.write_bytes(b"\x00" * 100)          # not 256-aligned
+    with pytest.raises(ValueError):
+        open_rl(str(bad))

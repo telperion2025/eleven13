@@ -157,6 +157,16 @@ class _DMAFace:
         b.cycles_used += 1
         b._route_write_word(self._pa(addr), value)
 
+    def read_byte(self, addr: int) -> int:
+        b = self._board
+        b.cycles_used += 1                      # one stolen cycle per byte
+        return b._route_read_byte(self._pa(addr))
+
+    def write_byte(self, addr: int, value: int) -> None:
+        b = self._board
+        b.cycles_used += 1
+        b._route_write_byte(self._pa(addr), value & 0o377)
+
 
 class SystemBoard:
     """The assembled machine: CPU + RAM + I/O page + devices, acting as the
