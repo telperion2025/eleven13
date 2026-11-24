@@ -4,8 +4,10 @@ exposed through the I/O page and (b) a tick()/scheduled-event state machine
 for data transfer, errors and interrupts — every device implements the
 BusDevice contract including serialize()/deserialize() (§15).
 
-M1: all device modules are documented stubs raising NotImplementedError per
-§19.10; the P0 boot set (DL11 console, KW11-L, RK05/RK11, RX01, TU10/TM11)
-lands in M2-M3, P1 (DZ11, RL11, PC11) in M4+, P2 (RH70, TQK11, KW11-P) in
-M5/M6.
+M1 made all device modules documented stubs raising NotImplementedError per
+§19.10; M2-M8 landed the P0/P1 set (DL11, KW11-L, RK11/RK05, RX11, DZ11,
+RH70/RP) and post-M8 added TM11/TU10, RL11/RL01/RL02, PC11 and KW11-P
+(register layouts cross-checked against SIMH pdp11_tm/rl/pt/pclk.c — see
+docs/acceptance-checklist.md). Remaining loud stubs: TQK11 (MSCP command
+layer), the VT11 framebuffer, FIS, and CIS CVT*/CRC (§19.10/§22.4).
 """

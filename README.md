@@ -14,7 +14,7 @@ The full engineering specification lives in **[DESIGN.md](DESIGN.md)** (Part A �
 - the I/O page router (`pdp11/memory/io_page.py`);
 - the **11/20 (KD11-B) BASE instruction set** on flat memory: full address-mode machinery (all 8 modes with the PC special cases), single/double-operand word+byte groups, all 16 branches, JMP/JSR/RTS, EMT/TRAP/BPT/IOT, HALT/WAIT/RESET/RTI/RTT, condition-code operators, SWAB, traps (bus error 000004, reserved 000010, T-bit 000014, IOT 000020, EMT 000030, TRAP 000034), interrupt priority logic, and the §5.4 capability gate (the 11/20 consumes microcoded-only opcodes as no-ops);
 - golden CPU tests including the hand-assembled decrement-loop transcript (spec §22.2);
-- every M2–M8 module present as a documented stub raising `NotImplementedError` with its spec section and milestone (spec §19.10) — never a silently-wrong fake.
+- every device module implemented per spec §7 with register layouts cross-checked against SIMH (DL11, KW11-L, KW11-P, RK11/RK05, RX11, DZ11, RH70/RP06/RP07, TM11/TU10 via `--tape`, RL11 via `--rl`, PC11 via `--papertape`); the few remaining stubs (TQK11 MSCP layer, VT11 framebuffer, FIS, CIS CVT*/CRC) raise `NotImplementedError` with their spec section per §19.10 — never a silently-wrong fake.
 
 M2 (Unibus + DL11 console + ODT) through M8 (snapshots, power-fail/restore, SIMH container round-trips) are fenced per DESIGN.md §22 and land in their own milestones.
 

@@ -141,10 +141,11 @@ def test_assemble_attaches_m3_devices(tmp_path):
     assert rk.base == 0o177400 and rk.drive.loaded      # type: ignore[attr-defined]
     assert board.read_word(0o177404) & 0o200            # RKCS DONE at reset
     assert board.read_word(0o177546) == 0               # KW11-L LKS clear
-    # 11/20 defaults lack rk11_rk05, but --disk attaches it anyway (§11.3)
+    # 11/20 defaults lack rk11_rk05, but --disk attaches it anyway (§11.3);
+    # the 11/20 default set also carries the PC11 paper tape (now implemented)
     args2 = build_arg_parser().parse_args(["--machine", "11/20", "--disk", img])
     board2 = assemble(args2, ConsoleTerminal(FakeBackend()))
-    assert [d.name for d in board2.devices] == ["DL11", "KW11L", "RK11"]
+    assert [d.name for d in board2.devices] == ["DL11", "KW11L", "PC11", "RK11"]
 
 
 def test_rk05_boot_block_end_to_end(tmp_path):
@@ -288,14 +289,13 @@ def test_rx01_boot_sector_end_to_end(tmp_path):
 
 
 def test_assemble_1170_devices():
-    """11/70: Unibus arbiter + MMU + Unibus map; DL11/KW11L/RH70 attach in
-    profile order (tm11 is not implemented until its milestone and is
-    skipped with a log note)."""
+    """11/70: Unibus arbiter + MMU + Unibus map; DL11/KW11L/RH70/TM11 attach
+    in profile order (TM11 implemented post-M8)."""
     args = build_arg_parser().parse_args(["--machine", "11/70"])
     board = assemble(args, ConsoleTerminal(FakeBackend()))
     assert board.unibus is not None and board.qbus is None
     assert board.mmu is not None and board.map is not None
-    assert [d.name for d in board.devices] == ["DL11", "KW11L", "RH70"]
+    assert [d.name for d in board.devices] == ["DL11", "KW11L", "RH70", "TM11"]
 
 
 def test_assemble_1170_rp06_disk(tmp_path):

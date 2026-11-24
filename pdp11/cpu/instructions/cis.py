@@ -10,9 +10,9 @@ the 0o076xxx group (register operands) and its inline-operand variants
     0o042 SCANC / 0o043 SPANC               scan / span masked chars
     0o044 CMPC / 0o045 MATC                 compare strings / match count
     0o060-0o067 L3DR   load 3 descriptors (R0-R5)
-    0o050-0o057, 0o070-0o077, 0o150-0o177    packed-decimal ops + CRC — NOT
-    implemented in v1 (loud NotImplementedError, §19.10/§22.4; spec §3 scopes
-    CIS to the string ops and §22 R4 stages the decimal set later)
+    0o050-0o057, 0o070-0o077 (+inline 0o150-0o177)   packed-decimal ops —
+    arithmetic implemented (ADDN/SUBN/CMPN/ADDP/SUBP/CMPP/MULP/DIVP/ASHN/
+    ASHP); CVT*/CRC stay loud NotImplementedError (§19.10/§22.4)
 
 String descriptor: word 0 = length in bytes, word 1 = starting byte address.
 Register forms use R0:R1 = source descriptor, R2:R3 = dest descriptor,
@@ -31,6 +31,8 @@ the capability gate traps these opcodes as reserved (§5.4/§5.8).
 
 from __future__ import annotations
 
+from typing import Any
+
 from pdp11.cpu import traps
 from pdp11.cpu.core import CPU, SIGN_BIT, WORD_MASK, opcode
 from pdp11.cpu.registers import PSW, Reg
@@ -43,7 +45,251 @@ _L3DR = 0o060
 _MOVC, _MOVRC, _MOVTC = 0o030, 0o031, 0o032
 _LOCC, _SKPC = 0o040, 0o041
 _SCANC, _SPANC, _CMPC, _MATC = 0o042, 0o043, 0o044, 0o045
+# packed-decimal ops (binutils pdp11-opc.c, cross-checked vs SIMH pdp11_cis.c
+# opntab): N-group 0o050-0o057, P-group 0o070-0o077, inline = op | 0o100
+_ADDN, _SUBN, _CMPN, _CVTNL, _CVTPN, _CVTNP, _ASHN, _CVTLN = range(0o050, 0o060)
+_ADDP, _SUBP, _CMPP, _CVTPL, _MULP, _DIVP, _ASHP, _CVTLP = range(0o070, 0o100)
+_ARITH_OPS = frozenset({_ADDN, _SUBN, _CMPN, _ADDP, _SUBP, _CMPP,
+                        _MULP, _DIVP, _ASHN, _ASHP})
 _DECIMAL_OPS = frozenset(range(0o050, 0o060)) | frozenset(range(0o070, 0o100))
+
+# decimal string types (descriptor word 0, <14:12>) — SIMH pdp11_cis.c
+XZ, UZ, TO, LO, TS, LS, XP, UP = range(8)
+
+
+def _overbin(c: int) -> int:
+    """ASCII overpunch char -> digit | 0x80(negative) (SIMH overbin[])."""
+    if 0o060 <= c <= 0o071:                  # '0'-'9' plain digits
+        return c - 0o060
+    if c == 0o173:                           # '{' = +0
+        return 0
+    if c in (0o175, 0o41, 0o72, 0o155):      # '}' '!' ':' '%' = -0
+        return 0x80
+    if 0o101 <= c <= 0o111:                  # 'A'-'I' = +1..+9
+        return c - 0o101 + 1
+    if 0o112 <= c <= 0o122:                  # 'J'-'R' = -1..-9
+        return c - 0o112 + 1 + 0x80
+    return 0
+
+
+def _binover(sign: int, digit: int) -> int:
+    """(sign, digit) -> ASCII overpunch char (SIMH binover[][])."""
+    if digit == 0:
+        return 0o173 if sign == 0 else 0o175
+    if sign == 0:
+        return 0o101 + digit - 1             # 'A'+d-1
+    return 0o112 + digit - 1                 # 'J'+d-1
+
+
+def _read_dstr(bus: Any, dsc: int, addr: int) -> tuple[int, int]:
+    """Read a decimal string (descriptor word `dsc`, address `addr`) ->
+    (sign, value); sign 1 = negative. All 8 CIS data types (SIMH ReadDstr)."""
+    typ = (dsc >> 12) & 7
+    n = dsc & 0o37                           # digit count
+    if typ in (XP, UP):                      # packed: digit nibbles 0..n-1, sign nibble n
+        nbytes = n // 2 + 1
+        raw = [bus.read_byte((addr + i) & WORD_MASK) for i in range(nbytes)]
+        digits = []
+        for i in range(n):
+            b = raw[i // 2]
+            digits.append((b >> 4) & 0xF if i % 2 == 0 else b & 0xF)
+        sb = raw[n // 2]
+        sign_nib = (sb >> 4) & 0xF if n % 2 == 0 else sb & 0xF
+        value = 0
+        for d in digits:
+            value = value * 10 + d
+        sign = 1 if (typ == XP and sign_nib == 0xD) else 0
+        return sign, value
+    if typ in (TS, LS):                      # separate sign: n+1 bytes
+        raw = [bus.read_byte((addr + i) & WORD_MASK) for i in range(n + 1)]
+        sign = 1 if (raw[0] if typ == LS else raw[-1]) == 0o055 else 0
+        body = raw[1:] if typ == LS else raw[:-1]
+        value = 0
+        for b in body:
+            value = value * 10 + (b - 0o060)
+        return sign, value
+    if typ in (XZ, UZ):                      # zoned: ASCII digits, sign in bit 7 of last
+        raw = [bus.read_byte((addr + i) & WORD_MASK) for i in range(n)]
+        sign = 1 if (typ == XZ and (raw[-1] & 0x80)) else 0
+        value = 0
+        for b in raw:
+            value = value * 10 + (b & 0x7F) - 0o060
+        return sign, value
+    if typ in (TO, LO):                      # overpunch at the end / start
+        raw = [bus.read_byte((addr + i) & WORD_MASK) for i in range(n)]
+        ob = _overbin(raw[0] if typ == LO else raw[-1])
+        sign = 1 if ob & 0x80 else 0
+        digit = ob & 0xF
+        value = 0
+        body = raw[1:] if typ == LO else raw[:-1]
+        if typ == LO:
+            value = digit
+        for b in body:
+            value = value * 10 + (b - 0o060)
+        if typ == TO:
+            value = value * 10 + digit
+        return sign, value
+    return 0, 0
+
+
+def _write_dstr(bus: Any, dsc: int, addr: int, sign: int, value: int) -> None:
+    """Write (sign, value) as a decimal string of descriptor `dsc` at `addr`
+    (SIMH WriteDstr). Value is |value|; sign 1 = negative."""
+    typ = (dsc >> 12) & 7
+    n = dsc & 0o37
+    digits = []
+    v = value
+    while v:
+        digits.append(v % 10)
+        v //= 10
+    ds = digits[::-1][-n:] if n else []           # low n digits, high-first
+    ds = [0] * (n - len(ds)) + ds                  # left-pad with zeros
+    if typ in (XP, UP):
+        nbytes = n // 2 + 1
+        sign_nib = 0xD if (typ == XP and sign) else (0xC if typ == XP else 0xF)
+        pout = bytearray(nbytes)
+        for i in range(nbytes):
+            if 2 * i < n:
+                hi = ds[2 * i]
+            elif 2 * i == n:
+                hi = sign_nib
+            else:
+                hi = 0
+            if 2 * i + 1 < n:
+                lo = ds[2 * i + 1]
+            elif 2 * i + 1 == n:
+                lo = sign_nib
+            else:
+                lo = 0
+            pout[i] = (hi << 4) | lo
+        for i, b in enumerate(pout):
+            bus.write_byte((addr + i) & WORD_MASK, b)
+        return
+    if typ in (TS, LS):
+        body = bytes(0o060 + d for d in ds)
+        if typ == LS:
+            raw = bytes([0o055 if sign else 0o053]) + body
+        else:
+            raw = body + bytes([0o055 if sign else 0o053])
+        for i, b in enumerate(raw):
+            bus.write_byte((addr + i) & WORD_MASK, b)
+        return
+    if typ in (XZ, UZ):
+        out = [0o060 + d for d in ds]
+        if typ == XZ and sign:
+            out[-1] |= 0x80
+        for i, b in enumerate(out):
+            bus.write_byte((addr + i) & WORD_MASK, b)
+        return
+    if typ in (TO, LO):
+        out = [0o060 + d for d in ds]
+        if typ == LO:
+            out[0] = _binover(sign, out[0] - 0o060)
+        else:
+            out[-1] = _binover(sign, out[-1] - 0o060)
+        for i, b in enumerate(out):
+            bus.write_byte((addr + i) & WORD_MASK, b)
+        return
+
+
+def _dsc_operands(cpu: CPU, op: int, inline: bool) -> tuple[tuple[int, int], ...]:
+    """Collect the descriptor (word0, addr) pairs for a decimal op:
+    3-desc ops (ADD/SUB/MUL/DIV): src1, src2, dst; CMP: src1, src2;
+    ASH: src, dst + shift arg in R4 / 3rd inline word."""
+    st = cpu.state
+    if op in (_ADDN, _SUBN, _ADDP, _SUBP, _MULP, _DIVP):
+        n_desc = 3
+    elif op in (_CMPN, _CMPP):
+        n_desc = 2
+    else:                                   # ASHN/ASHP
+        n_desc = 2
+    out: list[tuple[int, int]] = []
+    if inline:
+        for _ in range(n_desc):
+            a = _inline_word(cpu)
+            out.append(_descriptor(cpu, a))
+    else:
+        pairs = [(st.R[0], st.R[1]), (st.R[2], st.R[3]), (st.R[4], st.R[5])]
+        out = pairs[:n_desc]
+    return tuple(out)
+
+
+def _decimal(cpu: CPU, op: int, inline: bool) -> None:
+    """CIS packed/numeric decimal ops (binutils opcode map; SIMH pdp11_cis.c
+    semantics via (sign, value) big-int conversion). Arithmetic ops are
+    implemented; CVT*/CRC stay loud stubs (§19.10/§22.4)."""
+    st = cpu.state
+    bus = cpu.bus
+    assert bus is not None
+    psw = st.psw
+    if op not in _ARITH_OPS:
+        raise NotImplementedError(
+            f"§5.4 CIS op 0o{0o076000 | (op | (0o100 if inline else 0)):06o} "
+            "(CVT*/CRC) — deferred, flagged §22.4")
+    descs = _dsc_operands(cpu, op, inline)
+    if op in (_ASHN, _ASHP):
+        s_dsc, s_addr = descs[0]
+        d_dsc, d_addr = descs[1]
+        arg = _inline_word(cpu) if inline else st.R[4]
+        count = arg & 0o177                  # <6:0> shift count
+        neg = bool(arg & 0o200)              # <7> 1 = right shift
+        round_digit = (arg >> 8) & 0o17      # <11:8> round digit
+        sign, value = _read_dstr(bus, s_dsc, s_addr)
+        if not neg:
+            shifted_out = value % (10 ** count) if count else 0
+            value *= 10 ** count
+            psw.set(PSW.V, shifted_out != 0)
+            psw.set(PSW.C, False)
+        else:
+            div = 10 ** count
+            q, r = divmod(value, div)
+            if round_digit >= 5 and r * 2 >= div:
+                q += 1
+            psw.set(PSW.V, False)
+            psw.set(PSW.C, r != 0)
+            value = q
+        if sign:
+            value = -value
+        dsign = 1 if value < 0 else 0
+        _write_dstr(bus, d_dsc, d_addr, dsign, abs(value))
+        _set_nz(psw, value & WORD_MASK)
+        return
+    src1 = _read_dstr(bus, descs[0][0], descs[0][1])
+    src2 = _read_dstr(bus, descs[1][0], descs[1][1])
+    v1 = -src1[1] if src1[0] else src1[1]
+    v2 = -src2[1] if src2[0] else src2[1]
+    if op in (_CMPN, _CMPP):
+        d = v1 - v2
+        _set_nz(psw, d & WORD_MASK)
+        psw.set(PSW.V, False)
+        psw.set(PSW.C, v1 < v2)
+        return
+    d_dsc, d_addr = descs[2]
+    ndigits = d_dsc & 0o37
+    if op in (_ADDN, _ADDP):
+        result = v1 + v2
+        carry = 1 if abs(result) >= 10 ** ndigits else 0
+        psw.set(PSW.C, bool(carry))
+    elif op in (_SUBN, _SUBP):
+        result = v1 - v2
+        psw.set(PSW.C, v1 < v2)
+    elif op == _MULP:
+        result = v1 * v2
+        psw.set(PSW.C, abs(result) >= 10 ** ndigits)
+    else:                                   # DIVP
+        if v2 == 0:
+            psw.set(PSW.V, True)
+            psw.set(PSW.C, True)
+            _set_nz(psw, 0)
+            return
+        result = abs(v1) // abs(v2)
+        if (v1 < 0) != (v2 < 0):
+            result = -result
+        psw.set(PSW.C, False)
+    psw.set(PSW.V, abs(result) >= 10 ** ndigits)
+    dsign = 1 if result < 0 else 0
+    _write_dstr(bus, d_dsc, d_addr, dsign, abs(result))
+    _set_nz(psw, result & WORD_MASK)
 
 
 def _set_nz(psw: PSW, value: int) -> None:
@@ -294,8 +540,7 @@ def instr_CIS(cpu: CPU) -> None:
         return
 
     if op in _DECIMAL_OPS:                                      # ADDN..CVTLP, CRC
-        raise NotImplementedError(
-            "§5.4 CIS packed-decimal ops (ADDN/SUBN/CMPN/CVT*/ASH*/ADDP/…/CRC) "
-            "— deferred past M6, flagged §22.4 (spec §3 scopes CIS to string ops)")
+        _decimal(cpu, op, inline)
+        return
 
     traps.reserved_instruction(cpu)                             # unassigned 0o076xxx

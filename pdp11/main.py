@@ -50,16 +50,23 @@ from pdp11.control.snapshot import load_snapshot, restore_state, save_snapshot
 from pdp11.devices.dl11 import DL11
 from pdp11.devices.dz11 import DZ11
 from pdp11.devices.kw11l import KW11L
+from pdp11.devices.kw11p import KW11P
+from pdp11.devices.pc11 import PC11
 from pdp11.devices.rh70_rp import RH70, RP06, RP07
 from pdp11.devices.rk11_rk05 import RK05, RK11
+from pdp11.devices.rl11 import RL11, RLDrive
 from pdp11.devices.rx11 import RX11
+from pdp11.devices.tm11 import TM11
 from pdp11.disk_images.container import (
     RK05_SECTOR,
     RP06_SECTORS,
     RP07_SECTORS,
     RP_SECTOR,
     RX01_SECTOR,
+    PtImage,
+    TapImage,
     open_disk_image,
+    open_rl,
 )
 from pdp11.errors import EmulationError
 from pdp11.graphics.la36 import LA36Frontend
@@ -76,9 +83,13 @@ BUS_CYCLE_NS = 150  # nominal Unibus cycle (§5.6) — used ONLY for --throttle 
 # Devices whose milestone hasn't landed are skipped with an INFO note (§19.10).
 CONSOLE_DL11_BASE = 0o177560
 KW11L_BASE = 0o177546
+KW11P_BASE = 0o172540
 RK11_BASE = 0o177400
+RL11_BASE = 0o174400
 RX11_BASE = 0o177170
 DZ11_BASE = 0o160100
+TM11_BASE = 0o172520
+PC11_BASE = 0o177550
 # RH70_BASE imported from bus.massbus (0o176700)
 
 
@@ -92,7 +103,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--memory", type=lambda s: int(s, 8), metavar="OCT_WORDS",
                    help="RAM size in octal words, overriding the profile max")
     p.add_argument("--disk", action="append", metavar="IMAGE",
-                   help="attach a disk image (format detected per §16)")
+                   help="attach a disk image (format detected per §16: RK05/RX01/"
+                        "RP06/RP07/RL01/RL02)")
+    p.add_argument("--rl", action="append", metavar="IMAGE",
+                   help="attach an RL01/RL02 image (raw 256-byte sectors, "
+                        "autosized per §16) to the RL11")
+    p.add_argument("--tape", action="append", metavar="TAP",
+                   help="attach a SIMH .tap magtape (§16) to TM11/TQK11")
+    p.add_argument("--papertape", action="append", metavar="PT",
+                   help="attach a PC11 paper tape (.pt raw byte stream, §16)")
     p.add_argument("--console", choices=["vt100", "vt52", "la36", "odt"],
                    default="vt100", help="terminal frontend (§8)")
     p.add_argument("--bootrom", metavar="FILE",
@@ -162,13 +181,20 @@ def assemble(args: argparse.Namespace, terminal: TerminalFrontend) -> SystemBoar
     # order = daisy-chain priority, §6.1); skip not-yet-implemented ones.
     requested = overrides.get("devices", profile.default_devices)
     disks = [open_disk_image(p) for p in (args.disk or [])]   # containers (§16)
-    rk_images = [d for d in disks if d.sector_size == RK05_SECTOR]
+    rk_images = [d for d in disks if d.sector_size == RK05_SECTOR
+                 and d.sector_count == 4879]
     rx_images = [d for d in disks if d.sector_size == RX01_SECTOR]
     rp_images = [d for d in disks if d.sector_size == RP_SECTOR
                  and d.sector_count in (RP06_SECTORS, RP07_SECTORS)]
+    rl_images = [open_rl(p) for p in (args.rl or [])]        # RL packs (§16)
+    tapes = [TapImage(p) for p in (args.tape or [])]          # .tap (§16)
+    paper_tapes = [PtImage(p) for p in (args.papertape or [])]  # .pt (§16)
     rk_attached = False
     rx_attached = False
     rh_attached = False
+    rl_attached = False
+    tm_attached = False
+    pc_attached = False
     for name in requested:
         if name == "dl11_console":
             board.attach_device(CONSOLE_DL11_BASE, DL11(clock, terminal))
@@ -192,6 +218,20 @@ def assemble(args: argparse.Namespace, terminal: TerminalFrontend) -> SystemBoar
                      else RP06(image))
             board.attach_device(RH70_BASE, RH70(clock, board.massbus_host, drive))
             rh_attached = True
+        elif name == "tm11":
+            tape_img = tapes.pop(0) if tapes else None
+            board.attach_device(TM11_BASE, TM11(clock, board.dma_host, tape_img))
+            tm_attached = True
+        elif name == "rl11":
+            rl_img = rl_images.pop(0) if rl_images else None
+            board.attach_device(RL11_BASE, RL11(clock, board.dma_host, RLDrive(rl_img)))
+            rl_attached = True
+        elif name == "pc11":
+            pt = paper_tapes.pop(0) if paper_tapes else None
+            board.attach_device(PC11_BASE, PC11(clock, pt))
+            pc_attached = True
+        elif name == "kw11p":
+            board.attach_device(KW11P_BASE, KW11P(clock))
         else:
             _log.info("device %r not implemented until its milestone — skipping", name)
     # leftover --disk images attach by container format (§16): RK05 -> RK11,
@@ -216,6 +256,24 @@ def assemble(args: argparse.Namespace, terminal: TerminalFrontend) -> SystemBoar
             rh_attached = True
         else:
             _log.info("extra RP image %s: v1 models one Massbus drive — ignored", image.path)
+    for image in rl_images:
+        if not rl_attached:
+            board.attach_device(RL11_BASE, RL11(clock, board.dma_host, RLDrive(image)))
+            rl_attached = True
+        else:
+            _log.info("extra RL image %s: v1 models drive unit 0 only — ignored", image.path)
+    for tape_img in tapes:
+        if not tm_attached:
+            board.attach_device(TM11_BASE, TM11(clock, board.dma_host, tape_img))
+            tm_attached = True
+        else:
+            _log.info("extra tape %s: v1 models one TM11 drive — ignored", tape_img.path)
+    for pt in paper_tapes:
+        if not pc_attached:
+            board.attach_device(PC11_BASE, PC11(clock, pt))
+            pc_attached = True
+        else:
+            _log.info("extra paper tape %s: v1 models one PC11 — ignored", pt.path)
     # M8: --restore loads a §15 snapshot AFTER assembly (devices attached), so
     # the saved device/queue state maps onto the freshly attached windows.
     if args.restore:
