@@ -426,3 +426,48 @@ def test_1194_mmu_on_program_path():
     assert cpu.state.halted
     assert board.mmu is not None and board.mmu.enabled
     assert board.ram.read_word(0o200000) == 0o1234
+
+
+# -- M7: --console frontends + terminal wiring (spec §8, §12 M7) ----------------------
+
+
+def test_console_choices_wire_frontends():
+    """--console {vt100,vt52,la36,odt} selects the TerminalFrontend (§8): the
+    escape-sequence terminals of graphics/vt100.py + la36.py, or the plain
+    console. Every choice assembles and HALTs into ODT on the 11/20."""
+    from pdp11.main import make_terminal
+    for choice, name in (("vt100", "vt100"), ("vt52", "vt52"),
+                         ("la36", "la36"), ("odt", "console")):
+        backend = FakeBackend(b"Q\n")
+        term = make_terminal(choice, backend)
+        assert term.name == name
+        args = build_arg_parser().parse_args(["--machine", "11/20", "--console", choice])
+        board = assemble(args, term)
+        assert run(board, term) == 0
+        if choice == "la36":
+            assert backend.text() == ""            # hardcopy buffers until a line LF
+        else:
+            assert "@" in backend.text()           # ODT prompt reached the host
+
+
+def test_1103_bootstrap_via_default_vt100_frontend():
+    """Default --console vt100 (§8): the 11/03 bootstrap banner flows through
+    the VT100 state machine — printables/CR/LF are forwarded to the host, so
+    the banner text is visible on a plain backend. (Input leads with a filler
+    byte: during RUN the DL11 input pump consumes one queued byte into RCVBUF,
+    as the real console receiver would; the Q for ODT follows it.)"""
+    backend = FakeBackend(b"\nQ\n")
+    rc = main(["--machine", "11/03"], backend=backend)
+    assert rc == 0
+    assert "non-authentic" in backend.text()
+    assert "@" in backend.text()                   # ODT prompt after HALT
+
+
+def test_1103_bootstrap_via_la36_frontend():
+    """--console la36: the banner prints line-by-line (buffered until LF) —
+    a hardcopy device, not a screen (§8)."""
+    backend = FakeBackend(b"\nQ\n")                # see note above: pump eats one byte
+    rc = main(["--machine", "11/03", "--console", "la36"], backend=backend)
+    assert rc == 0
+    assert "non-authentic" in backend.text()
+    assert "\r\n" in backend.text()                # lines flushed with CR LF

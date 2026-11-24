@@ -22,6 +22,10 @@ M5: 11/70 Massbus — RH70 at 176700 with an RP06/RP07 drive (devices/
 rh70_rp.py); --disk dispatches RP06/RP07-sized containers to the RH70 (§16).
 DMA devices get board.dma_host (Unibus map applied on the 11/70) and the
 RH70 gets board.massbus_host (22-bit physical direct, §6.1).
+M7: --console selects the virtual terminal (vt100/vt52/la36 escape-sequence
+frontends, graphics/vt100.py + la36.py, or the plain odt console) via
+make_terminal() below; --debug runs the extended debugger (control/debugger.py,
+§9) which supervises RUN (breakpoints/watchpoints) and owns the HALT shell.
 """
 
 from __future__ import annotations
@@ -35,6 +39,7 @@ from typing import Any
 from pdp11.board import SystemBoard
 from pdp11.bus.massbus import RH70_BASE
 from pdp11.config.profiles import PROFILES, BusType, MachineProfile
+from pdp11.control.debugger import Debugger, crash_dump
 from pdp11.control.front_panel import ODT, FrontPanel
 from pdp11.control.rom_loader import attach_boot_rom
 from pdp11.devices.dl11 import DL11
@@ -51,8 +56,11 @@ from pdp11.disk_images.container import (
     RX01_SECTOR,
     open_disk_image,
 )
+from pdp11.errors import EmulationError
+from pdp11.graphics.la36 import LA36Frontend
 from pdp11.graphics.render_backend import RenderBackend, StdioBackend
 from pdp11.graphics.terminal import ConsoleTerminal, TerminalFrontend
+from pdp11.graphics.vt100 import VT52Frontend, VT100Frontend
 from pdp11.system_clock import SystemClock
 
 _log = logging.getLogger(__name__)
@@ -102,6 +110,20 @@ def _load_config_overrides(path: str | None) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"config {path} must be a JSON object")
     return data
+
+
+def make_terminal(choice: str, backend: RenderBackend) -> TerminalFrontend:
+    """--console selection (§8): the DL11 talks to a virtual terminal through
+    the TerminalFrontend interface — VT100 (default), VT52, or the LA36
+    hardcopy; "odt" keeps the plain text console. Only render_backend.py and
+    main.py touch host I/O (§8/§19.6)."""
+    if choice == "vt100":
+        return VT100Frontend(backend)
+    if choice == "vt52":
+        return VT52Frontend(backend)
+    if choice == "la36":
+        return LA36Frontend(backend)
+    return ConsoleTerminal(backend)             # "odt": plain console
 
 
 def assemble(args: argparse.Namespace, terminal: TerminalFrontend) -> SystemBoard:
@@ -175,21 +197,27 @@ def assemble(args: argparse.Namespace, terminal: TerminalFrontend) -> SystemBoar
             rh_attached = True
         else:
             _log.info("extra RP image %s: v1 models one Massbus drive — ignored", image.path)
-    if args.console not in ("odt",):
-        _log.info("--console %s: full terminal emulation lands M7; using plain console",
-                  args.console)
     return board
 
 
-def run(board: SystemBoard, terminal: TerminalFrontend, throttle: bool = False) -> int:
-    """Run loop: execute until HALT, then hand to ODT (§9). Returns exit code.
-    Wall-clock throttling exists ONLY here, outside the deterministic core."""
+def run(board: SystemBoard, terminal: TerminalFrontend, throttle: bool = False,
+        debug: bool = False) -> int:
+    """Run loop: execute until HALT, then hand to ODT (§9) — or to the extended
+    debugger with --debug, which also supervises RUN (breakpoints/watchpoints,
+    §9). Returns exit code. Wall-clock throttling exists ONLY here, outside
+    the deterministic core (§19.6)."""
     cpu = board.cpu
     panel = FrontPanel(board)
+    dbg = Debugger(board, terminal) if debug else None
     t0 = time.monotonic()
     while True:
         while not cpu.state.halted:
-            cpu.step()
+            if dbg is not None:
+                if not dbg.supervised_step():      # breakpoint/watchpoint fired
+                    panel.halt()
+                    break
+            else:
+                cpu.step()
             if terminal.break_pending():          # BREAK key -> HALT (§13)
                 panel.halt()
             if throttle:                           # §14/§19.6: pace to 150 ns/cycle
@@ -197,8 +225,12 @@ def run(board: SystemBoard, terminal: TerminalFrontend, throttle: bool = False) 
                 delay = target - time.monotonic()
                 if delay > 0:
                     time.sleep(delay)
-        action = ODT(board, terminal).run()           # HALT -> ODT (§9)
+        shell: ODT = dbg if dbg is not None else ODT(board, terminal)
+        action = shell.run()                           # HALT -> ODT/debugger (§9)
         if action == "quit":
+            if dbg is not None:
+                # §14 instrumentation: ips computed HERE at the §19.6 boundary
+                dbg.report_perf(time.monotonic() - t0)
             return 0
         panel.run()                                    # G -> RUN (§13)
 
@@ -207,9 +239,18 @@ def main(argv: list[str] | None = None, backend: RenderBackend | None = None) ->
     """Assemble the chosen machine and run until HALT/error."""
     args = build_arg_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
-    terminal: TerminalFrontend = ConsoleTerminal(backend if backend is not None else StdioBackend())
+    host = backend if backend is not None else StdioBackend()
+    terminal = make_terminal(args.console, host)      # --console frontend (§8, M7)
     board = assemble(args, terminal)
-    return run(board, terminal, throttle=args.throttle)
+    try:
+        return run(board, terminal, throttle=args.throttle, debug=args.debug)
+    except EmulationError as exc:
+        # §18.3: crash loudly with the debugger's pasteable state dump
+        dump = crash_dump(board, exc)
+        for ch in dump:
+            terminal.write(ord(ch))
+        _log.error("EmulationError crash dump:\n%s", dump)
+        return 1
 
 
 if __name__ == "__main__":
