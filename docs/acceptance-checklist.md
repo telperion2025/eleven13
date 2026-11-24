@@ -216,3 +216,19 @@ Version 1 is complete when all eleven criteria pass. Status after M3:
     inherited ODT `/` `\` `G` `Q`. The §18.3 EmulationError crash dump
     (registers, PC, last 8 opcodes via `CPU.op_trace`, clock cycle) prints
     through the terminal and exits 1 (`main.py`, `test_debugger.py`).
+29. M7 review pass (PR #5): (a) ODT/debugger octal fields that fail to parse
+    now answer `?` instead of crashing on `ValueError`, and host EOF mid-deposit
+    quits cleanly instead of `None.strip()` (`front_panel.py`,
+    `test_debugger.py::test_garbage_octal_args_answer_question_mark`,
+    `::test_deposit_eof_mid_line_quits_cleanly`); (b) the VT100 parser now
+    executes C0 controls immediately inside ESC/CSI sequences and lets ESC
+    abort a pending CSI, matching the DEC state machine
+    (`test_vt100.py::test_c0_control_executes_inside_csi` et al.); (c) the
+    debugger's hot path (`supervised_step`) no longer performs its own bus
+    reads — perf counting uses `CPU.last_op_word` after the step, so
+    supervised runs are cycle-identical to plain runs
+    (`test_debugger.py::test_supervised_run_is_cycle_identical_to_plain_run`);
+    disassembly survives a bus-erroring operand word (`???` placeholder);
+    (d) `BackendTerminal`'s input queue is a `deque` (O(1) popleft); (e) the
+    diagnostic harness clips RAM small instead of allocating the 22-bit
+    profiles' full 4 MB ceiling.

@@ -216,3 +216,35 @@ def test_frontend_eof():
 
     fe = VT100Frontend(EofBackend(b""))
     assert fe.read() is None and fe.at_eof() is True
+
+
+# -- parser edge cases (DEC VT100 parser: C0 controls execute inside ESC/CSI) ---------
+
+
+def test_c0_control_executes_inside_csi():
+    t = VT100()
+    feed_str(t, "AB")
+    feed_bytes(t, ESC, 0o133, ord("2"), BEL, 0o112)   # CSI 2 <BEL> J
+    assert t.bells == 1                                 # BEL executed immediately...
+    assert t.line(0) == ""                              # ...and the CSI still completed
+
+
+def test_lf_inside_csi_executes_and_sequence_completes():
+    t = VT100()
+    feed_bytes(t, ESC, 0o133, ord("1"), ord("0"), LF, 0o110)  # CSI 10 <LF> H
+    assert t.row == 9                                   # LF moved to row 1, then CSI 10 H fired
+
+
+def test_esc_aborts_pending_csi():
+    t = VT100()
+    feed_str(t, "AB")
+    feed_bytes(t, ESC, 0o133, ord("1"), ESC, 0o133, ord("2"), 0o112)  # CSI 1 aborted; CSI 2 J
+    assert t.line(0) == ""
+
+
+def test_private_csi_sequence_consumed():
+    t = VT100()
+    feed_str(t, "XY")
+    csi(t, "?25l")                                      # private mode: consumed, no effect
+    assert (t.row, t.col) == (0, 2)
+    assert t.line(0) == "XY"

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from collections import deque
 
 _log = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ class BackendTerminal(TerminalFrontend):
     def __init__(self, backend: RenderBackend) -> None:  # noqa: F821 — typing only
         from pdp11.graphics.render_backend import RenderBackend  # local: avoid cycle
         self._backend: RenderBackend = backend
-        self._queue: list[int] = []
+        self._queue: deque[int] = deque()    # popleft() is O(1), unlike list.pop(0)
 
     def _fill(self) -> None:
         while True:
@@ -76,7 +77,7 @@ class BackendTerminal(TerminalFrontend):
     def read(self) -> int | None:
         if not self._queue:
             self._fill()
-        return self._queue.pop(0) if self._queue else None
+        return self._queue.popleft() if self._queue else None
 
     def break_pending(self) -> bool:
         if not self._queue:

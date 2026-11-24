@@ -202,6 +202,64 @@ def test_main_emulation_error_crashes_with_dump(monkeypatch):
     assert "last 8 opcodes" in out and "cycle" in out
 
 
+# -- review-pass edge tests -----------------------------------------------------------
+
+
+class EofBackend(FakeBackend):
+    """FakeBackend that signals EOF once its input is drained (like closed stdin)."""
+
+    def at_eof(self) -> bool:
+        return not self.input
+
+
+def test_garbage_octal_args_answer_question_mark():
+    """Malformed octal arguments must print "?", never crash the shell (§9)."""
+    dbg, backend, _ = make_debugger([], b"b zz\nw q\ns x\nzz/\nG zz\nQ\n")
+    assert dbg.run() == "quit"
+    assert backend.text().count("?") >= 5      # b/w/s args, examine, G arg all rejected
+
+
+def test_deposit_eof_mid_line_quits_cleanly():
+    """Host EOF between the `\\` prompt and the value line: quit, no crash,
+    nothing deposited (regression: None.strip() AttributeError)."""
+    cpu, board = make_machine(program=[0o000000], pc=0o100)
+    backend = EofBackend(b"200\\\n")
+    dbg = Debugger(board, ConsoleTerminal(backend))
+    assert dbg.run() == "quit"
+    assert board.ram.read_word(0o000200) == 0
+
+
+def test_supervised_run_is_cycle_identical_to_plain_run():
+    """--debug supervision adds no bus reads of its own: the same program
+    stepped plainly vs supervised (no breakpoints/watchpoints) must produce
+    identical cycle counts, register state, and halt behavior (§5.6)."""
+    prog = [0o012700, 0o000005, 0o005300, 0o001376, 0o000000]
+    cpu1, board1 = make_machine(program=prog, pc=0o100)
+    cpu2, board2 = make_machine(program=prog, pc=0o100)
+    dbg = Debugger(board2, ConsoleTerminal(FakeBackend()))
+    steps = 0
+    while not cpu1.state.halted and steps < 100:
+        cpu1.step()
+        assert dbg.supervised_step() is True
+        steps += 1
+    assert cpu1.state.halted and cpu2.state.halted
+    assert board1.clock.cycle == board2.clock.cycle
+    assert list(cpu1.state.R) == list(cpu2.state.R)
+    assert cpu1.state.psw.value == cpu2.state.psw.value
+    assert dbg.perf.instructions == steps
+
+
+def test_single_step_disassembly_survives_bus_error_operand():
+    """Instruction at the last RAM word whose inline operand word lies in
+    nonexistent memory: the disassembler's operand fetch bus-errors — the
+    step prints a placeholder line anyway and the machine traps cleanly."""
+    dbg, backend, _ = make_debugger([0o013737], b"s 1\nQ\n", pc=0o037776)  # MOV @#?,@#?
+    assert dbg.run() == "quit"
+    out = backend.text()
+    assert "037776: 013737" in out
+    assert "???" in out                         # operand word unreadable -> placeholder, no crash
+
+
 def test_assembled_board_debugger_devices(tmp_path):
     """The debugger shell over a fully assembled machine (devices + counters)."""
     from pdp11.disk_images.container import open_rk05

@@ -99,12 +99,23 @@ class VT100:
         if self._state == _GROUND:
             return self._ground(b)
         if self._state == _ESC:
+            # DEC parser behavior: C0 controls execute immediately even inside
+            # an escape sequence; ESC restarts the escape; anything else is final
+            if b == ESC:
+                return None
+            if b < 0o040:
+                return self._control(b)       # stay in _ESC
             self._state = _GROUND
             return self._esc(b)
         if self._state == _CHARSET:
             self._state = _GROUND             # ESC ( x / ESC ) x: graphics charset, ignored (R5)
             return None
         if self._state == _CSI:
+            if b == ESC:                      # a new escape aborts the CSI
+                self._state = _ESC
+                return None
+            if b < 0o040:
+                return self._control(b)       # C0 executes immediately, CSI continues
             if 0o100 <= b <= 0o176:           # final byte terminates the sequence
                 self._state = _GROUND
                 self._csi_dispatch(b)
@@ -125,6 +136,13 @@ class VT100:
         if b == ESC:
             self._state = _ESC
             return None
+        if 0o040 <= b <= 0o176:
+            self._put(b)
+            return b
+        return self._control(b)               # C0 controls (also used inside ESC/CSI)
+
+    def _control(self, b: int) -> int | None:
+        """Execute one C0 control byte; returns the host-forward byte or None."""
         if b == CR:
             self.col = 0
             return b
@@ -139,9 +157,6 @@ class VT100:
             return None
         if b == BEL:
             self.bells += 1
-            return b
-        if 0o040 <= b <= 0o176:
-            self._put(b)
             return b
         return None                           # remaining C0 controls: consumed
 

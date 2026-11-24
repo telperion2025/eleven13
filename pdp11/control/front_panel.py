@@ -97,6 +97,15 @@ class ODT:
             if action is not None:
                 return action
 
+    @staticmethod
+    def _oct(text: str) -> int | None:
+        """Parse an octal field; None on garbage — ODT answers "?" (§9),
+        never crashes on a malformed address."""
+        try:
+            return int(text.strip(), 8) & 0o177777
+        except ValueError:
+            return None
+
     def _dispatch(self, line: str) -> str | None:
         """Handle one command line; returns "go"/"quit" to leave the loop,
         None to prompt again."""
@@ -109,19 +118,33 @@ class ODT:
         if line in ("G", "g") or line.upper().startswith("G "):
             parts = line.split()
             if len(parts) > 1:
-                self.board.cpu.state.R[Reg.PC] = int(parts[1], 8) & 0o177777
+                addr = self._oct(parts[1])
+                if addr is None:
+                    self._emit("?\r\n")       # octal addresses only (§9)
+                    return None
+                self.board.cpu.state.R[Reg.PC] = addr
             else:
                 self.board.cpu.state.R[Reg.PC] = self.current & 0o177777
             return "go"
         if line.endswith("/"):
-            addr = int(line[:-1].strip(), 8) & 0o177777   # octal only (§9)
+            addr = self._oct(line[:-1])           # octal only (§9)
+            if addr is None:
+                self._emit("?\r\n")
+                return None
             self.current = addr
             self._emit(f"{addr:06o}/ {self.board.read_word(addr):06o}\r\n")
             return None
         if line.endswith("\\"):
-            self.current = int(line[:-1].strip(), 8) & 0o177777
+            addr = self._oct(line[:-1])
+            if addr is None:
+                self._emit("?\r\n")
+                return None
+            self.current = addr
             self._emit(self.prompt)
-            value = int(self._readline().strip() or "0", 8) & 0o177777
+            nxt = self._readline()
+            if nxt is None:
+                return "quit"                     # host input exhausted mid-deposit
+            value = self._oct(nxt) or 0
             self.board.write_word(self.current, value)
             self._emit(f"{self.current:06o}/ {value:06o}\r\n")
             return None

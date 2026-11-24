@@ -268,19 +268,20 @@ class Debugger(ODT):
     def supervised_step(self) -> bool:
         """Run ONE instruction with breakpoint/watchpoint checks and perf
         counting. Returns False when a stop condition fired (the machine is
-        NOT halted — main.run decides); True to keep running."""
+        NOT halted — main.run decides); True to keep running. The opcode for
+        the perf counters is taken from CPU.last_op_word AFTER the step — the
+        debugger adds NO bus reads of its own on the hot path, so supervised
+        runs are cycle-identical to plain runs (and reading e.g. a DL11
+        register as PC can never fire its side effects here)."""
         cpu = self.board.cpu
         pc = cpu.state.R[Reg.PC]
         if pc in self.breakpoints:
             self._emit(f"breakpoint {pc:06o}\r\n")
             return False
         before = {a: self._peek(a) for a in self.watchpoints}
-        try:
-            op = self.board.read_word(pc, fetch=True)
-        except BusInit:
-            op = 0
         cpu.step()
-        self.perf.record(op, COSTS.get(op >> 12, COSTS[0o0]))
+        self.perf.record(cpu.last_op_word,
+                         COSTS.get(cpu.last_op_word >> 12, COSTS[0o0]))
         for a, old in before.items():
             now = self._peek(a)
             if old is not None and now != old:
@@ -296,37 +297,32 @@ class Debugger(ODT):
     def _dispatch(self, line: str) -> str | None:
         cmd = line.strip()
         first = cmd.split()[0] if cmd else ""
-        if first == "b":
+        if first in ("b", "w"):
             rest = cmd[1:].strip()
+            target = self.breakpoints if first == "b" else self.watchpoints
+            kind = "breakpoint" if first == "b" else "watchpoint"
             if rest:
-                addr = int(rest, 8) & 0o177777
-                if addr in self.breakpoints:
-                    self.breakpoints.discard(addr)
-                    self._emit(f"breakpoint {addr:06o} cleared\r\n")
+                addr = self._oct(rest)
+                if addr is None:
+                    self._emit("?\r\n")       # octal only (§9) — never crash the shell
+                    return None
+                if addr in target:
+                    target.discard(addr)
+                    self._emit(f"{kind} {addr:06o} cleared\r\n")
                 else:
-                    self.breakpoints.add(addr)
-                    self._emit(f"breakpoint {addr:06o}\r\n")
+                    target.add(addr)
+                    self._emit(f"{kind} {addr:06o}\r\n")
             else:
-                listing = " ".join(f"{a:06o}" for a in sorted(self.breakpoints)) or "none"
-                self._emit(f"breakpoints: {listing}\r\n")
-            return None
-        if first == "w":
-            rest = cmd[1:].strip()
-            if rest:
-                addr = int(rest, 8) & 0o177777
-                if addr in self.watchpoints:
-                    self.watchpoints.discard(addr)
-                    self._emit(f"watchpoint {addr:06o} cleared\r\n")
-                else:
-                    self.watchpoints.add(addr)
-                    self._emit(f"watchpoint {addr:06o}\r\n")
-            else:
-                listing = " ".join(f"{a:06o}" for a in sorted(self.watchpoints)) or "none"
-                self._emit(f"watchpoints: {listing}\r\n")
+                listing = " ".join(f"{a:06o}" for a in sorted(target)) or "none"
+                self._emit(f"{kind}s: {listing}\r\n")
             return None
         if first == "s":
             arg = cmd[1:].strip()
-            self._single_step(int(arg, 8) if arg else 1)
+            n = self._oct(arg) if arg else 1
+            if n is None:
+                self._emit("?\r\n")
+                return None
+            self._single_step(n)
             return None
         if first == "r":
             self._dump_registers()
@@ -366,7 +362,10 @@ class Debugger(ODT):
                 op = self.board.read_word(pc, fetch=True)
             except BusInit:
                 op = 0
-            text = disassemble(lambda a: self.board.read_word(a, fetch=True), pc)
+            try:
+                text = disassemble(lambda a: self.board.read_word(a, fetch=True), pc)
+            except BusInit:
+                text = "???"                    # operand word bus-errored mid-disassembly
             self._emit(f"{pc:06o}: {op:06o}  {text}\r\n")
             before = {a: self._peek(a) for a in self.watchpoints}
             cpu.step()

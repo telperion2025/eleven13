@@ -75,13 +75,16 @@ class DiagnosticResult:
 
 
 def run_diagnostic(profile_key: str, program: list[int] | None = None,
-                   max_steps: int = MAX_STEPS) -> DiagnosticResult:
+                   max_steps: int = MAX_STEPS, ram_words: int = 0o010000
+                   ) -> DiagnosticResult:
     """Run one diagnostic on a fresh board of `profile_key` until HALT (pass)
     or max_steps (fail); the word at FLAG_ADDR must read 1 for a pass.
     A real MAINDEC image, once operator-supplied (§22.1), is loaded the same
-    way — pass criterion becomes the diagnostic's own error halt/flag."""
+    way — pass criterion becomes the diagnostic's own error halt/flag.
+    `ram_words` is clipped small: the smoke diagnostic only touches low memory,
+    and 22-bit profiles would otherwise allocate their full 4 MB ceiling."""
     profile = PROFILES[profile_key]
-    board = SystemBoard(profile, SystemClock())
+    board = SystemBoard(profile, SystemClock(), ram_words=ram_words)
     prog = DIAGNOSTIC_PROGRAM if program is None else program
     for i, w in enumerate(prog):
         board.ram.write_word(LOAD_ADDR + 2 * i, w)

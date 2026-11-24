@@ -77,6 +77,14 @@ def test_seven_bit_mask():
     assert prn.text() == "A"
 
 
+def test_ff_on_empty_line_and_del_consumed():
+    prn = LA36()
+    assert prn.feed(0o014) == [0o015, 0o012, FF]   # empty line still prints CR LF + FF
+    assert prn.lines_printed == 1
+    prn.feed(0o177)                                 # DEL: consumed silently (no bell)
+    assert prn.bells == 0 and prn.text() == ""
+
+
 def test_la36_frontend_emits_completed_lines():
     be = FakeBackend()
     fe = LA36Frontend(be)
