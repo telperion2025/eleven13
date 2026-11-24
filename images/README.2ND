@@ -1,0 +1,172 @@
+            File: README.2ND    RT-11  DISTRIBUTIONS  V5-0
+
+This CD of RT-11 distributions holds twenty-four binary RT-11 distributions
+for V05.07 and prior.  In addition, this CD contains RT-11 file structures
+along with the normal ISO9660 file structure.  Individuals who have access
+to hardware and software which can read the CD correctly (in an emulated
+512 byte block file format under either a real DEC PDP-11 or an emulated
+PDP-11) will be able to BOOT V05.03 of RT-11 directly from this CD.
+
+Although this CD is probably not unique in having two file structures, it
+is probably one of the very few in which the files are NOT duplicated.  The
+actual contents of each file are present on the CD only ONCE.  While most
+users will look at only the ISO9660 file structure, all of the file entries
+within the four RT-11 file structures (one is required for each 32 MByte
+RT-11 partition and each have exactly 65536 blocks) point to the same
+location on the CD insofar as each file is concerned.
+
+If an image file of this CD is being used (probably under an emulator), the
+image file should ALWAYS be used in a READ ONLY mode.  Each of the three
+bootable RT-11 partitions contain file directories which cover the bootable
+distributions TWICE, first as the last RL02 image followed by over two
+hundred files which are contained within that same RL02 image.  As before,
+the actual file contents are not duplicated.  This highly unusual situation
+was produced by manually setting the fifth word of the second directory
+segment (starting block number of the first file in that directory segment)
+back to the actual block number where the file (SWAP.SYS in this case)
+begins within the RT-11 partition (RT-11 does not try to check the value).
+Although a limited set of changes might be possible for those experts who
+are fully aware of the potential disaster which any changes might produce,
+it is strongly suggested that none are likely to be worth the attempt.
+
+In order to be able to boot any given distribution of RT-11, a standard
+set of requirements must be satisfied.  The only aspects which will be
+discussed in this file are those which are added to the standard set due
+to the use of a CD (or, as in probably most cases, an image file of the
+CD being used with an emulator) which started as an ISO9660 set of files
+of RL02 file images.
+
+One aspect of booting which may not be appreciated is that RT-11 is able
+to boot and run from a system device which is READ ONLY.  While it is
+obviously essential to be able to write any permanent changes to a drive
+which allows a write operation, under RT-11, the operating system does
+not require any device, and in particular the system device, to be able
+to accept a write operation during any normal RT-11 process.  Thus, unlike
+some operating systems, RT-11 can be run from either a CD or an image file
+of the CD which is READ ONLY.
+
+However, it was necessary to perform a write operation to the MSCP device
+drivers, DU(X).SYS, prior to booting RT-11 from the second and third RT-11
+partitions (PART=1 and PART=2).  Those write operations were made using an
+image file of the CD until testing was complete.  If any further changes
+are deemed essential in the future, a copy of the image file for the CD
+should be made to test that the changes will not cause any difficulties
+before they are applied to the original image file of the CD.
+
+
+                                Page 1
+            File: README.2ND    RT-11  DISTRIBUTIONS  V5-0
+
+The next requirement for the CD was to set up the RT-11 file structure
+for each RT-11 partition, as per the statement at the beginning of this
+file.  There is one ISO9660 file structure which starts at block 60 or
+CD sector 15.  Under RT-11, the file structure for each RT-11 partition
+of 65536 blocks (the only size which RT-11 allows and only MSCP devices
+can have partitions) starts at block zero and uses a maximum of 68 blocks,
+although a user option easily restricts the maximum to 60 blocks.
+
+Consequently, the location of the ISO9660 file structure and the RT-11
+file structure for the first RT-11 partition (PART=0) do not overlap.
+But, there was a problem with the rest of the RT-11 partitions and their
+RT-11 file structures.  In addition, the "Nero Burning" software, which
+was used to set up the ISO9660 file structure, copied all files to the CD
+in order of the file name without any ability to avoid selected sectors
+on the CD.  Rather than try and overcome this aspect of the order and
+location of the files by "Nero Burning", the solution that was adopted
+was to incorporate empty spacer files at the end of each RT-11 partition
+along with one empty spacer file, EMPTY.FIL, at the beginning of the CD
+immediately following the ISO9660 file structure.  The size of EMPTY.FIL
+was chosen so that the next file, README.1ST, would start at block 256
+on the CD which is CD sector 64.
+
+Once that decision was made, the size of the next empty spacer file,
+RTV5RL.03S, was straightforward.  The previous 20 files on the CD occupy a
+total of 56648 blocks and start at block 256. In order to force RTV5RL.04
+to start at block 65536+68, RTV5RL.03S must be 8700 blocks.  The sizes for
+the other two empty spacer files, RTV5RL.06S and RTV5RL.07S, were determined
+in a similar manner.
+
+A test CD was initially produced to determine the correct size of the
+first empty spacer file, EMPTY.FIL, so that README.1ST would start at
+block 256.  For this version of the CD, EMPTY.FIL is 152 blocks.
+
+The next step was a bit unusual, but relatively simple.  Under RT-11,
+SIPP.SAV was used to add an additional directory segment to the one
+existing directory segment at the start of each RT-11 partition.  This
+was necessary because the files used when RT-11 is booted must be in the
+file structure of an RT-11 partition whereas, at that point, they were
+only in the file structure of the subset file.  The directory segment
+had to be added with SIPP since the starting block number would overlap
+the last file already on the RT-11 partition.  That allowed the files to
+be "copied" (for a second time - they were actually already there inside
+the subset - the starting block number of the second directory segment
+was chosen to make sure that the "copies" occupied the same blocks as the
+original files).  Now the file structures for the bootable RT-11 partitions
+contained the individual files from the bootable RT-11 distributions.
+
+Once the files were "copied", an RT-11 command was used to set up the boot
+blocks on each of the three bootable RT-11 partitions:
+COPY/BOOT  DU0:RT11XM.SYS  DU0:
+However, DU1: and DU2: required one additional step.  Each of the files
+DU.SYS and DUX.SYS from the bootable distributions had to be modified using
+the eight RT-11 commands:
+
+                                Page 2
+            File: README.2ND    RT-11  DISTRIBUTIONS  V5-0
+
+SET  DU0:  UNIT=0, PART=0
+SET  DU1:  UNIT=0, PART=1
+SET  DU2:  UNIT=0, PART=2
+SET  DU3:  UNIT=0, PART=3
+SET  DU4:  UNIT=0, PART=4
+SET  DU5:  UNIT=0, PART=5
+SET  DU6:  UNIT=0, PART=6
+SET  DU7:  UNIT=0, PART=7
+
+However, if performed on the files which were part of the actual RT-11
+distribution, they would be changed inside the subset.  The solution
+was to rename DU.SYS and DUX.SYS to DU.DEC and DUX.DEC, respectively,
+then make new copies of DU.SYS and DUX.SYS immediately after the subset
+and alter the new versions.  In practice, the same procedure was also
+performed for DU0: since otherwise, it would not be possible to access
+DU1: and DU2: from DU0: and boot the V05.06 and V05.07 of RT-11.  Once
+the names were changed within the file structures for the RT-11 partitions
+(for the files actually located inside the subsets) and the new versions
+copied to locations following the subsets (within the empty spacer files),
+the COPY/BOOT commands could be done.  And since the name changes were
+made only in the RT-11 file structures for the RT-11 partitions, not in
+the file structures for the subsets, the three subsets themselves are
+totally unchanged and remain an exact pristine copy of the original RL02
+image file.
+
+After the initial CD was produced and copied to a container file on the
+hard drive of exactly four RT-11 partitions (134,217,728 bytes), the next
+step was to set up the file structures for the four RT-11 partitions for
+the files that were in each RT-11 partition.  In actual practice, exactly
+the opposite was done since after the CD was produced, each of the four
+RT-11 partitions were already positioned in that container file with only
+the ISO9660 file structure missing.  After those few blocks were copied
+(from block 60 to block 103 on the image file of the CD), the basic
+structure was complete.
+
+Although the above explanation sounds reasonable, in practice it took
+several weeks to accomplish.  It is now possible to boot three different
+distributions of RT-11 on each of the three bootable RT-11 partitions.
+The modified files DU.SYS and DUX.SYS are at the very end of each RT-11
+partition.  Fortunately (actually chosen because it was possible), V05.06
+of RT-11 was the first version which could be booted from a non-zero RT-11
+partition.  And of course, the MSCP device drivers, DU(X).SYS were only
+available starting with V05.00 of RT-11 and RT-11 partitions only first
+available with V05.03 of RT-11.  If everything seems to have worked out
+rather well with this CD, it is because it was planned that way.
+
+One final point.  The first two files under the RT-11 file structure are
+IS9660.DIR with 44 blocks and EMPTY.FIL with 152 blocks for a total of
+196 blocks.  The total blocks for these two files will remain constant.
+Future versions of this CD will include sub-directories for the ISO9660
+file structure and a larger IS9660.DIR file.  EMPTY.FIL will be decreased
+by the same number of blocks as the size of IS9660.DIR increases.  This
+will keep the starting block number for README.1ST at block number 256.
+
+                                Page 3
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            

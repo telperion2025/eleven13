@@ -1,0 +1,343 @@
+            File: README.1ST    RT-11  DISTRIBUTIONS  V5-0
+
+This CD of RT-11 distributions holds twenty-four binary RT-11 distributions
+for V05.07 and prior.  In addition, this CD contains RT-11 file structures
+along with the normal ISO9660 file structure.  Individuals who have access
+to hardware and software which can read the CD correctly (in an emulated
+512 byte block file format under either a real DEC PDP-11 or an emulated
+PDP-11) will be able to BOOT V05.03 of RT-11 directly from this CD.
+
+Although this CD is probably not unique in having two file structures, it
+is probably one of the very few in which the files are NOT duplicated.  The
+actual contents of each file are present on the CD only ONCE.  While most
+users will look at only the ISO9660 file structure, all of the file entries
+within the four RT-11 file structures (one is required for each 32 MByte
+RT-11 partition and each have exactly 65536 blocks) point to the same
+location on the CD insofar as each file is concerned.
+
+There was no contact at all, in respect of the production of this CD, with
+Mentec, DEC, Compaq or HP.  None of these four companies provided any of
+the files.  None helped to verify that the files are correct.  Future
+support is not anticipated and will not be requested.  A license from one
+or more of the companies is required to legally use any of the RT-11
+distributions.  Hobby users have been provided with a license from Mentec
+to use V05.03 and prior distributions of RT-11 under the Supnik emulator.
+
+Both V1-0 and V5-0 of this CD were being prepared at about the same time.
+It was anticipated that the extra eleven binary RT-11 distributions on
+V5-0 would result in a very different CD.  V1-0 of this CD ended up being
+identical as to the file structures and the total space allocation for
+each file.  However, if this file is V1-0, then the contents of all of
+the RT-11 distributions after V05.03 of RT-11 contain zeros.  On the other
+hand, if this file is V5-0, then this CD is available only to those users,
+companies and individuals who have a legal license for V05.07 of RT-11 and
+have requested a complete set of RT-11 distributions on a single CD.
+
+Future CDs for the current versions (V1-0 and V5-0) will be produced as
+significant improvements become available.  In addition, a second set of
+CDs, V2-0 and V6-0 have been started which will contain layered products
+such as FORTRAN IV, FORTRAN 77, Multi-User Basic and C.  Source files
+for all distributions are also a goal for inclusion.
+
+If you are reading V1-0 of this file via Usenet or Google, then it is
+possible to download a Zipped copy of the file image for the CD at:
+http://www.classiccmp.org/PDP-11/RT-11/dists/RT11DV10.ISO.zip
+If you are reading V5-0 of this file, then it is most likely that it
+is on the actual CD or at least from a file image of the CD.  If you
+are a commercial user reading V1-0 of this file and are legally licensed
+to use V05.07 of RT-11, you can request a copy of the CD from:
+"RT-11 Distributions" <cctalk@classiccmp.org>
+or alternatively via the Usenet groups alt.sys.pdp11 or vmsnet.pdp-11
+Commercial users who have a license for a distribution of RT-11 prior to
+V05.07 may also request a customized copy of V5-0 of the CD with the
+RT-11 distributions they are not licensed for set to zeros.
+
+
+
+                                Page 1
+            File: README.1ST    RT-11  DISTRIBUTIONS  V5-0
+
+This file contains important information which even some expert RT-11
+users will wish to know.  It is STRONGLY suggested that everyone read
+this complete file even if they are an expert under RT-11.
+
+These RT-11 distributions were made available from almost a dozen sources
+over many decades.  As a result, there are just too many people to whom
+acknowledgement is due without having to leave out some individuals for
+whom there is no longer even a name.  If you are one of the many people
+who helped, THANK YOU!
+
+A pristine RT-11 distribution is defined as:
+
+(a) Originally being directly made by DEC
+(b) Copied file by file to a media which was originally all zeros so that
+    no additional non-zero data is included except when DEC decided to
+    distribute files which were not documented
+(c) The RT-11 Volume ID and Owner are correct
+(d) The order of the files is correct
+(e) If the file image also contains boot information which is sufficient
+    to allow the image to be booted using real DEC hardware or an
+    emulator, then any files which were modified as a result of a boot
+    operation (such as LD.SYS) were returned to their original state
+(f) Any file which contains no valid information (such as SWAP.SYS) was
+    zeroed
+
+Although DEC did produce pristine distributions for some distributions,
+in many cases not all of the above criteria were used.  In particular,
+items (e) and (f) were usually not considered and item (b) was often
+a problem for unused blocks of the media.  This CD of RT-11 distributions
+contains file images that, as much as is possible, adhere to the above
+criteria.
+
+Since it is hoped that additional versions of RT-11 will be found in the
+future (and perhaps are already available but not known about when these
+RT-11 distributions are being copied), periodic updates will be made.
+It is also very likely that some of information in this file and in the
+file images is incorrect.  It would be very appreciated if corrections
+are provided.  Please send an email with the information to Usenet or to:
+"RT-11 Distributions" <cctalk@classiccmp.org>
+
+If an image file of this CD is being used (probably under an emulator), the
+image file should ALWAYS be used in a READ ONLY mode.  Each of the three
+bootable RT-11 partitions contain file directories which cover the bootable
+distributions TWICE, first as the last RL02 image followed by over two
+hundred files which are contained within that same RL02 image.  As before,
+the actual file contents are not duplicated.  This highly unusual situation
+was produced by manually setting the fifth word of the second directory
+segment (starting block number of the first file in that directory segment)
+back to the actual block number where the file (SWAP.SYS in this case)
+begins within the RT-11 partition (RT-11 does not try to check the value).
+Although a limited set of changes might be possible for those experts who
+are fully aware of the potential disaster which any changes might produce,
+it is strongly suggested that none are likely to be worth the attempt.
+
+                                Page 2
+            File: README.1ST    RT-11  DISTRIBUTIONS  V5-0
+
+One problem that is known about is when the PUTR utility by John Wilson
+is used to copy any of the files from the RT-11 directories for the
+bootable RT-11 partitions.  While the large image files of complete RT-11
+distributions can be copied using PUTR, it is not possible, at the time
+this CD is being prepared, to use PUTR to copy ANY of the individual files
+within any of the bootable RT-11 distributions, specifically for V05.03 of
+RT-11.  John Wilson is aware of the problem; hopefully it will eventually
+be fixed, although if an actual CD is being used, just copy the file (under
+the ISO9660 file structure on the CD) in the normal manner to a file on the
+hard drive and avoid the problem.  In the interim, when any individual file
+within any of the bootable RT-11 distributions of RT-11 is needed, starting
+with the file SWAP.SYS, first copy that bootable RT-11 file image for that
+distribution (such as RTV5RL.03) to a file on the hard drive.  Then MOUNT
+that file image so that any individual file can be copied.  A copy of PUTR
+can be obtained from John Wilson at http://www.dbit.com/pub/putr/
+
+The choice of which RT-11 distributions are included on this CD is based on
+the following criteria:
+
+(a) All available RT-11 distributions are included in addition to those  
+    which hobby users are allowed to legally run under the SIMH emulator;  
+    SIMH can be found at: http://simh.trailing-edge.com/
+(b) For V05.0x distributions, an RL02 image is included
+(c) Prior to V05.00, an original RK05 image is included whenever possible
+    in preference to any other media.
+(d) If an RK05 image is not available, then a group of RX01 images is the
+    only other choice.  For this case, an RK05 file image is also present,
+    but the Volume ID and Owner are probably not correct nor are the files
+    likely to be in the same order as for the DEC version; however, at
+    least there is the convenience of being able to use a single file
+    image.  For V01-15, a rare DT file image is available which is almost
+    certainly incomplete; a bootable RK05 file image is also present.
+
+All file names are 6 alphanumeric characters followed by at least the
+character "0" for the file type when there is no explicit sub-version,
+such as for V03 of RT-11.  When the subversion is an integral portion
+of the RT-11 version such as for V03B, then the file type is the single
+character "B".  The naming conventions for the files on this CD are:
+
+RTVnmd.sss     where
+
+RT  is for RT-11 binary distributions
+Vn  is for the primary version number and is one of V01, V02, V03, V04
+    or V05
+md  is for the media of the single bootable file image
+    DT is for DecTape images
+    R1 is for RX01 images for which there will be individual subsets
+    R2 is for RX02 images for which there will be individual subsets
+    R5 is for RX50 images for which there will be individual subsets
+    RK is for RK05 images
+    RL is for RL02 images
+sss is the sub-version as best as it can be represented
+
+
+                                Page 3
+            File: README.1ST    RT-11  DISTRIBUTIONS  V5-0
+
+For RX01 media, the internal file images are indented.  The internal
+file image names use the "md" portion of the name as "n of total" for
+each of the files (hopefully total will never exceed 9).  When there
+is also a separate "Auto-Install" file image, "md" will be the two
+characters "AU".  Some of the information which follows may not be
+correct and the files in the images may not be in the correct order.
+Where the level of confidence is not of the highest level that the
+information is correct and that the files are in the correct order,
+then that file is flagged with an asterisk "*".  For a few of the
+file images for RL02 media, only RX02 file images could be found.
+For these isolated cases, the order of the files within the RL02
+file image was assumed to be the same as the order from a previous
+or a subsequent RT-11 binary RL02 distribution which was available.
+
+In addition, for the very early distributions of RT-11, especially
+V01-15, V02B and V02C, while every effort was made to include as many
+files in the distribution as possible, it is very likely that many
+files are missing, especially the source files which are needed for
+to generate a monitor or a device driver.  V03 and V03B distributions
+are also suspect, although an examination of these two distributions
+shows that most, if not all of the files to be expected are present.
+
+On the other hand, because there is often more than one distribution
+of RT-11 available for V02B, V02C, V03 and V03B, it is difficult to
+decide which is a more accurate reflection of the historical situation
+during the first decade of the emergence of RT-11 as one of the major
+operating systems for the PDP-11 computer from DEC.  Although it seems
+doubtful, at this point, that anyone will actually be concerned, let
+alone look at the actual files or even use them in some manner, the
+attempt to reconcile which set of files are the most appropriate will
+continue for the files in the very early distributions of RT-11 prior
+to V4.00 of RT-11.  Most specifically, V03B seems to have been used over
+an extended period of time, probably for about three years.  The V30B
+included on this CD is seems to be from a point near the end of those
+years and includes the relatively new DD (DecTape II) and PD (for the
+PDT-11) device drivers.  If there is a request to include some of the
+many alternative distributions for V02B, V02C, V03 or V03B, please make
+the request known via an email to Usenet or at:
+"RT-11 Distributions" <cctalk@classiccmp.org>
+
+AND FINALLY, a full size and complete RK05 file image is 4800 blocks
+and a full size and a complete RL02 file image is 20450 blocks. However,
+it can be seen that neither the RK05 nor the RL02 file images have that
+many blocks.  While the CD is able to hold full size file images without
+any impact (most of the CD is empty), in an effort to reduce the number
+of RT-11 partitions, all of the blocks in each RK05 file image and RL02
+file image which are all zeros AFTER the end of all of the files within
+the RT-11 file directory have been omitted.  For this reason, two empty
+file images, ZERORK.DSK (with 4800 blocks or a total of 2,457,600 bytes)
+and ZERORL.DSK (with 20450 blocks or a total of 10,470,400 bytes) are
+present on the CD.  Under V05.03 of RT-11, the command:
+COPY/DEVICE/FILE DU3:ZERORL.DSK  DL0:
+can be used to copy ZERORL.DSK from DU3: to clear all of DL0: (substitute
+
+                                Page 4
+            File: README.1ST    RT-11  DISTRIBUTIONS  V5-0
+
+RK0: for DL0: when an RK05 is being used).  Obviously the user must be
+within RT-11 to execute this command.  Another alternative is to copy the
+file from the CD to a file on the hard drive and use that individual file
+image as a device in the command:
+COPY/DEVICE  DU0:  DL0:
+
+If the user has the "Full" (Commercial) version of Ersatz-11 and wishes
+to use a "RAM:" disk under that emulator, the command is:
+MOUNT  DL0:  RAM:/RL02/SIZE:10470400 (Use 20450 blocks after V3.1)
+Any other size will probably not work correctly.  Also, the "/RL02"
+switch must be first.  Initially, RAM: is always cleared.
+
+Note that the size of ZERODL.DSK is larger than the user area by
+30 blocks or 15,360 bytes since it includes the system area required
+by both SIMH and Ersatz-11 during the RT-11 command: INITIALIZE  DL0:
+Under SIMH:       ATTACH  RL0:  ZERODL.DSK
+Under Ersatz-11:  MOUNT   DL0:  ZERODL.DSK
+Consequently, ZERODL.DSK is for use ONLY when running RT-11 under an
+emulator such as SIMH or Ersatz-11.  If the user needs a file under
+RT-11 which is exactly the size which RT-11 specifies for the user
+area (namely 20450 blocks), use the file ZERORL.DSK which is exactly
+20450 blocks.  Obviously the file ZERORK.DSK can be used for any empty
+RK05 image under both real DEC hardware and an emulator.  The three
+files discussed in this paragraph can be found within the fourth RT-11
+partition (RT-11 partition three or PART=3 or DU3:).
+
+File Name       Media   Version   Date Issued   Volume ID      Owner
+---------       -----   -------   -----------   ------------   -------------
+
+README.1ST      This file         31-Oct-1998
+README.2ND      Important RT-11 information on the access of RT-11 partitions
+RTV1DT.15 *     DT      V01-15    25-Jul-1973   RT-11 V01-15   DEC
+RTV1RK.15 *     RK05    V01-15    25-Jul-1973   RT-11 V01-15   DEC
+RTV2R1.B **     n/a     V02B      01-May-1975   RT-11 V02B     DEC
+  RTV212.B *    RX01    V02B      01-May-1975   ORTSA-A-YB1    DEC DISTRIB
+  RTV222.B *    RX01    V02B      01-May-1975   ORTSA-A-YB2    DEC DISTRIB
+RTV2RK.B *      RK05    V02B      01-May-1975   ORTSA-A-YB     DEC DISTRIB
+RTV2R1.C **     n/a     V02C      20-Nov-1975   RT-11 V02C     DEC
+  RTV213.C *    RX01    V02C      20-Nov-1975   ORTSA-B-YB1    DEC DISTRIB
+  RTV223.C *    RX01    V02C      20-Nov-1975   ORTSA-B-YB2    DEC DISTRIB
+  RTV233.C *    RX01    V02C      20-Nov-1975   ORTSA-B-YB3    DEC DISTRIB
+RTV2RK.C *      RK05    V02C      20-Nov-1975   ORTSA-B-YB     DEC DISTRIB
+RTV3R1.0 **     n/a     V03       14-Aug-1977   RT-11 V03      DEC
+  RTV319.0      RX01    V03       14-Aug-1977   ORTSB-A-YC1    DX1 DISTRIB
+  RTV329.0      RX01    V03       14-Aug-1977   ORTSB-A-YC2    DX2 DISTRIB
+  RTV339.0      RX01    V03       14-Aug-1977   ORTSB-A-YC3    DX3 DISTRIB
+  RTV349.0      RX01    V03       14-Aug-1977   ORTSB-A-YC4    DX4 DISTRIB
+  RTV359.0      RX01    V03       14-Aug-1977   ORTSB-A-YC5    DX5 DISTRIB
+  RTV369.0      RX01    V03       14-Aug-1977   ORTSB-A-YC6    DX6 DISTRIB
+  RTV379.0      RX01    V03       14-Aug-1977   ORTSB-A-YC7    DX7 DISTRIB
+  RTV389.0      RX01    V03       14-Aug-1977   ORTSB-A-YC8    DX8 DISTRIB
+  RTV399.0      RX01    V03       14-Aug-1977   ORTSB-A-YC9    DX9 DISTRIB
+RTV3RK.0 *      RK05    V03       14-Aug-1977   ORTSB-A-YB     DEC DISTRIB
+
+                                Page 5
+            File: README.1ST    RT-11  DISTRIBUTIONS  V5-0
+
+File Name       Media   Version   Date Issued   Volume ID      Owner
+---------       -----   -------   -----------   ------------   -------------
+
+RTV3R1.B **     n/a     V03B      27-Mar-1979   RT-11 V03B     DEC
+  RTV319.B      RX01    V03B      27-Mar-1979   AS-5777C-BC    DX1 DISTRIB
+  RTV329.B      RX01    V03B      27-Mar-1979   AS-5779C-BC    DX2 DISTRIB
+  RTV339.B      RX01    V03B      27-Mar-1979   AS-5780C-BC    DX3 DISTRIB
+  RTV349.B      RX01    V03B      27-Mar-1979   AS-5781C-BC    DX4 DISTRIB
+  RTV359.B      RX01    V03B      27-Mar-1979   AS-5782C-BC    DX5 DISTRIB
+  RTV369.B      RX01    V03B      27-Mar-1979   AS-5783C-BC    DX6 DISTRIB
+  RTV379.B      RX01    V03B      27-Mar-1979   AS-5784C-BC    DX7 DISTRIB
+  RTV389.B      RX01    V03B      27-Mar-1979   AS-H756C-BC    DX8 DISTRIB
+  RTV399.B      RX01    V03B      27-Mar-1979   AS-H757C-BC    DX9 DISTRIB
+RTV3RK.B *      RK05    V03B      27-Mar-1979   AN-5752B-BC    RK05 DISTRIB
+RTV4RK.00       RK05    V04.00    21-Feb-1980   AN-5752C-BC    RT-11 V04.00
+RTV4RK.00C *    RK05    V04.00C   01-Feb-1982   AN-5752D-BC    RT-11 V04.00C
+RTV5RL.00       RL02    V05.00    12-Mar-1983   BC-P607A-BC    RL2 1/1
+RTV5RL.01       RL02    V05.01    01-Feb-1984   BC-P607B-BC    RL2 1/1
+RTV5RL.01B      RL02    V05.01B   19-Mar-1984   BC-P607C-BC    RL2 1/1
+RTV5RL.01C      RL02    V05.01C   01-Sep-1984   BC-P607D-BC    RL2 1/1
+RTV5RL.02       RL02    V05.02    17-Jun-1985   BC-P607E-BC    RL2 1/1
+RTV5RL.03       RL02    V05.03    20-Dec-1985   BC-P607F-BC    RL2 1/1
+RTV5RL.03S      Dummy file required on the CD for the next RT-11 partition
+                                                                 
+RTV5RL.04       RL02    V05.04    03-Sep-1986   BC-P607G-BC    RL2 1/1
+RTV5RL.04A      RL02    V05.04A   05-Jan-1986   BC-P607H-BC    RL2 1/1
+RTV5RL.04B      RL02    V05.04B   04-May-1987   BC-P607I-BC    RL2 1/1
+RTV5RL.04C      RL02    V05.04C   02-Sep-1987   BC-P607J-BC    RL2 1/1
+RTV5RL.04D      RL02    V05.04D   17-Nov-1987   BC-P607K-BC    RL2 1/1
+RTV5RL.04E      RL02    V05.04E   01-May-1988   BC-P607L-BC    RL2 1/1
+RTV5RL.04F      RL02    V05.04F   06-Sep-1988   BC-P607M-BC    RL2 1/1
+RTV5RL.04G      RL02    V05.04G   19-Dec-1988   BC-P607N-BC    RL2 1/1
+RTV5RL.05       RL02    V05.05    31-Oct-1989   BC-P607O-BC    RL2 1/1
+RTV5RL.06       RL02    V05.06    31-Aug-1992   BC-P607P-BC    RL2 1/1
+RTV5RL.06S      Dummy file required on the CD for the next RT-11 partition
+
+RTV5RL.07       RL02    V05.07    31-Oct-1998   480046511      RL2 1/1
+RTV5RL.07S      Dummy file required on the CD for the next RT-11 partition
+
+ZERODL.DSK      RL02    n/a    This file contains all zeros in the user area
+                               and is for use only under SIMH or Ersatz-11
+ZERORK.DSK      RK05    n/a    This file contains all zeros
+ZERORL.DSK      RL02    n/a    This file contains all zeros
+
+*  Some of these fields may be incorrect along with the order of the files
+
+** Although this file contains all of the file images for the complete
+   distribution, this file is NOT a DEC RT-11 distribution, but can be
+   MOUNTed as a "subset" under any V05.0x distribution of RT-11;  PUTR
+   can also be used in a similar manner to obtain the actual file images
+
+
+
+
+                                Page 6
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
