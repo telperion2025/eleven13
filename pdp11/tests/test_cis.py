@@ -2,8 +2,10 @@
 M6: CIS character-string instructions on the 11/94 (J-11 on-chip CIS;
 spec §3/§5.4) — the 0o076xxx group per SIMH pdp11_cis.c: MOVC/MOVRC/MOVTC,
 LOCC/SKPC, SCANC/SPANC, CMPC, MATC, L2DR/L3DR, and the inline-operand
-variants (bit 6). Packed-decimal ops (ADDN…/CRC) raise NotImplementedError
-(§22.4). On profiles without the CIS cap the group traps reserved (000010).
+variants (bit 6). Packed-decimal arithmetic (ADDN/SUBN/CMPN/ADDP/SUBP/CMPP/
+MULP/DIVP/ASHN/ASHP) is implemented; CVT*/CRC still raise NotImplementedError
+(§19.10/§22.4). On profiles without the CIS cap the group traps reserved
+(000010).
 """
 
 from __future__ import annotations
@@ -210,6 +212,282 @@ def test_cis_reserved_on_11_20():
     assert cpu.state.R[7] == 0o500                               # reserved trap 000010
 
 
-def test_cis_decimal_ops_loud_stub():
+ADDN, SUBN, CMPN, ASHN = 0o076050, 0o076051, 0o076052, 0o076056
+ADDP, SUBP, CMPP, MULP, DIVP, ASHP = 0o076070, 0o076071, 0o076072, 0o076074, 0o076075, 0o076076
+CVTNL = 0o076053
+
+
+def _put_zoned(board, addr, s, sign_neg=False):
+    for i, ch in enumerate(s):
+        b = ord(ch)
+        if sign_neg and i == len(s) - 1:
+            b |= 0x80
+        board.ram.write_byte(addr + i, b)
+
+
+def _put_packed(board, addr, digits, sign_neg=False):
+    n = len(digits)
+    nbytes = n // 2 + 1
+    ds = [0] * (n - n) + [int(c) for c in digits]
+    ds = [0] * (n - len(ds)) + ds
+    for i in range(nbytes):
+        hi = ds[2 * i] if 2 * i < n else 0
+        if 2 * i + 1 < n:
+            lo = ds[2 * i + 1]
+        elif 2 * i + 1 == n:
+            lo = 0xD if sign_neg else 0xC
+        else:
+            lo = 0
+        board.ram.write_byte(addr + i, (hi << 4) | lo)
+
+
+def test_cis_addn_zoned():
+    def setup(cpu, board):
+        _put_zoned(board, 0o2000, "12")
+        _put_zoned(board, 0o2010, "34")
+        cpu.state.R[0] = (0 << 12) | 2          # signed zoned, 2 digits
+        cpu.state.R[1] = 0o2000
+        cpu.state.R[2] = (0 << 12) | 2
+        cpu.state.R[3] = 0o2010
+        cpu.state.R[4] = (0 << 12) | 3          # dst: 3 digits
+        cpu.state.R[5] = 0o3000
+    cpu, board = _run([ADDN], setup, 1)
+    assert _bytes(board, 0o3000, 3) == b"046"
+    assert not cpu.state.psw.get(PSW.Z) and not cpu.state.psw.get(PSW.V)
+
+
+def test_cis_subn_negative_result():
+    def setup(cpu, board):
+        _put_zoned(board, 0o2000, "10")
+        _put_zoned(board, 0o2010, "25")
+        cpu.state.R[0] = (0 << 12) | 2
+        cpu.state.R[1] = 0o2000
+        cpu.state.R[2] = (0 << 12) | 2
+        cpu.state.R[3] = 0o2010
+        cpu.state.R[4] = (0 << 12) | 3
+        cpu.state.R[5] = 0o3000
+    cpu, board = _run([SUBN], setup, 1)
+    assert _bytes(board, 0o3000, 2) == b"01"
+    assert _bytes(board, 0o3002, 1) == bytes([ord("5") | 0x80])   # negative zoned
+    assert cpu.state.psw.get(PSW.N)
+    assert cpu.state.psw.get(PSW.C)                               # borrow
+
+
+def test_cis_addp_packed():
+    def setup(cpu, board):
+        _put_packed(board, 0o2000, "12")
+        _put_packed(board, 0o2010, "34")
+        cpu.state.R[0] = (6 << 12) | 2          # signed packed
+        cpu.state.R[1] = 0o2000
+        cpu.state.R[2] = (6 << 12) | 2
+        cpu.state.R[3] = 0o2010
+        cpu.state.R[4] = (6 << 12) | 4
+        cpu.state.R[5] = 0o3000
+    cpu, board = _run([ADDP], setup, 1)
+    # 46 packed in 4 digits: digit nibbles 0..3, sign nibble 4 (hi of byte 2)
+    assert _bytes(board, 0o3000, 3) == bytes([0x00, 0x46, 0xC0])
+
+
+def test_cis_cmpn():
+    def setup(cpu, board):
+        _put_zoned(board, 0o2000, "50")
+        _put_zoned(board, 0o2010, "50")
+        cpu.state.R[0] = (1 << 12) | 2          # unsigned zoned
+        cpu.state.R[1] = 0o2000
+        cpu.state.R[2] = (1 << 12) | 2
+        cpu.state.R[3] = 0o2010
+    cpu, board = _run([CMPN], setup, 1)
+    assert cpu.state.psw.get(PSW.Z)
+    assert not cpu.state.psw.get(PSW.C)
+
+
+def test_cis_ashn_shift_left():
+    def setup(cpu, board):
+        _put_zoned(board, 0o2000, "12")
+        cpu.state.R[0] = (0 << 12) | 2
+        cpu.state.R[1] = 0o2000
+        cpu.state.R[2] = (0 << 12) | 4
+        cpu.state.R[3] = 0o3000
+        cpu.state.R[4] = 2                      # shift left 2 digits
+    cpu, board = _run([ASHN], setup, 1)
+    assert _bytes(board, 0o3000, 4) == b"1200"
+
+
+def test_cis_mulp_divp_packed():
+    def setup(cpu, board):
+        _put_packed(board, 0o2000, "06")
+        _put_packed(board, 0o2010, "07")
+        cpu.state.R[0] = (6 << 12) | 2
+        cpu.state.R[1] = 0o2000
+        cpu.state.R[2] = (6 << 12) | 2
+        cpu.state.R[3] = 0o2010
+        cpu.state.R[4] = (6 << 12) | 4
+        cpu.state.R[5] = 0o3000
+    cpu, board = _run([MULP], setup, 1)
+    assert _bytes(board, 0o3000, 3) == bytes([0x00, 0x42, 0xC0])   # 42
+    cpu2, board2 = _run([DIVP], setup, 1)
+    assert _bytes(board2, 0o3000, 3) == bytes([0x00, 0x00, 0xC0])  # 0 (6/7)
+
+
+def test_cis_cvt_ops_still_loud_stub():
     with pytest.raises(NotImplementedError):
-        one_step([0o076050], profile_key="11/94")                # ADDN
+        one_step([CVTNL], profile_key="11/94")
+
+
+# --- decimal format coverage (zoned/overpunch/separate/packed, inline) ---
+
+def _put_overpunch(board, addr, s, leading=False, neg=False):
+    # s = digits; overpunch char on first (LO) or last (TO) byte
+    from pdp11.cpu.instructions.cis import _binover
+    raw = [ord(c) for c in s]
+    idx = 0 if leading else len(raw) - 1
+    raw[idx] = _binover(1 if neg else 0, raw[idx] - 0o060)
+    for i, b in enumerate(raw):
+        board.ram.write_byte(addr + i, b)
+
+
+def test_cis_subn_overpunch_trailing():
+    def setup(cpu, board):
+        _put_overpunch(board, 0o2000, "25", leading=False, neg=False)   # +25 -> 'R'? no: 5 -> 'E'
+        _put_overpunch(board, 0o2010, "10", leading=False, neg=True)    # -10
+        cpu.state.R[0] = (2 << 12) | 2          # trailing overpunch
+        cpu.state.R[1] = 0o2000
+        cpu.state.R[2] = (2 << 12) | 2
+        cpu.state.R[3] = 0o2010
+        cpu.state.R[4] = (2 << 12) | 3
+        cpu.state.R[5] = 0o3000
+    cpu, board = _run([SUBN], setup, 1)
+    # 25 - (-10) = 35 -> 3 digits: "03" + trailing overpunch 'E' (+5)
+    assert _bytes(board, 0o3000, 3) == b"03E"
+
+
+def test_cis_addn_leading_overpunch_negative():
+    def setup(cpu, board):
+        _put_overpunch(board, 0o2000, "05", leading=True, neg=True)     # -05
+        _put_overpunch(board, 0o2010, "03", leading=True, neg=False)    # +03
+        cpu.state.R[0] = (3 << 12) | 2          # leading overpunch
+        cpu.state.R[1] = 0o2000
+        cpu.state.R[2] = (3 << 12) | 2
+        cpu.state.R[3] = 0o2010
+        cpu.state.R[4] = (3 << 12) | 2
+        cpu.state.R[5] = 0o3000
+    cpu, board = _run([ADDN], setup, 1)
+    # -5 + 3 = -2 -> 2 digits: leading overpunch '}' (-0), then '2'
+    assert _bytes(board, 0o3000, 2) == b"}2"
+
+
+def test_cis_addn_trailing_separate():
+    def setup(cpu, board):
+        _put_str(board, 0o2000, b"12+")
+        _put_str(board, 0o2010, b"34-")
+        cpu.state.R[0] = (4 << 12) | 2          # trailing separate, 2 digits
+        cpu.state.R[1] = 0o2000
+        cpu.state.R[2] = (4 << 12) | 2
+        cpu.state.R[3] = 0o2010
+        cpu.state.R[4] = (4 << 12) | 3
+        cpu.state.R[5] = 0o3000
+    cpu, board = _run([ADDN], setup, 1)
+    assert _bytes(board, 0o3000, 4) == b"022-"      # 12 + (-34) = -22
+
+
+def test_cis_addn_leading_separate():
+    def setup(cpu, board):
+        _put_str(board, 0o2000, b"-07")
+        _put_str(board, 0o2010, b"+09")
+        cpu.state.R[0] = (5 << 12) | 2          # leading separate
+        cpu.state.R[1] = 0o2000
+        cpu.state.R[2] = (5 << 12) | 2
+        cpu.state.R[3] = 0o2010
+        cpu.state.R[4] = (5 << 12) | 2
+        cpu.state.R[5] = 0o3000
+    cpu, board = _run([ADDN], setup, 1)
+    assert _bytes(board, 0o3000, 3) == b"+02"
+
+
+def test_cis_unsigned_zoned_and_packed():
+    def setup(cpu, board):
+        _put_zoned(board, 0o2000, "99")         # unsigned zoned
+        _put_packed(board, 0o2010, "01")
+        cpu.state.R[0] = (1 << 12) | 2
+        cpu.state.R[1] = 0o2000
+        cpu.state.R[2] = (7 << 12) | 2          # unsigned packed
+        cpu.state.R[3] = 0o2010
+        cpu.state.R[4] = (7 << 12) | 3
+        cpu.state.R[5] = 0o3000
+    cpu, board = _run([ADDP], setup, 1)
+    # 99 + 1 = 100 -> unsigned packed 3 digits: 0x10 0x00 0x0F
+    assert _bytes(board, 0o3000, 2) == bytes([0x10, 0x0F])
+
+
+def test_cis_subp_cmpp_packed():
+    def setup(cpu, board):
+        _put_packed(board, 0o2000, "50")
+        _put_packed(board, 0o2010, "20")
+        cpu.state.R[0] = (6 << 12) | 2
+        cpu.state.R[1] = 0o2000
+        cpu.state.R[2] = (6 << 12) | 2
+        cpu.state.R[3] = 0o2010
+        cpu.state.R[4] = (6 << 12) | 3
+        cpu.state.R[5] = 0o3000
+    cpu, board = _run([SUBP], setup, 1)
+    assert _bytes(board, 0o3000, 2) == bytes([0x03, 0x0C])   # 30 packed in 3 digits
+    cpu2, board2 = _run([CMPP], setup, 1)
+    assert not cpu2.state.psw.get(PSW.Z) and not cpu2.state.psw.get(PSW.C)  # 50 > 20
+
+
+def test_cis_ashp_right_shift_round():
+    def setup(cpu, board):
+        _put_packed(board, 0o2000, "159")
+        cpu.state.R[0] = (6 << 12) | 3
+        cpu.state.R[1] = 0o2000
+        cpu.state.R[2] = (6 << 12) | 3
+        cpu.state.R[3] = 0o3000
+        cpu.state.R[4] = 0o200 | 1 | (5 << 8)    # right 1 digit, round digit 5
+    cpu, board = _run([ASHP], setup, 1)
+    # 159 >> 1 digit with round 5 -> 16, packed in 3 digits: 0x01 0x6C
+    assert _bytes(board, 0o3000, 2) == bytes([0x01, 0x6C])
+
+
+def test_cis_addn_overflow_sets_v():
+    def setup(cpu, board):
+        _put_zoned(board, 0o2000, "90")
+        _put_zoned(board, 0o2010, "20")
+        cpu.state.R[0] = (0 << 12) | 2
+        cpu.state.R[1] = 0o2000
+        cpu.state.R[2] = (0 << 12) | 2
+        cpu.state.R[3] = 0o2010
+        cpu.state.R[4] = (0 << 12) | 2          # dst only 2 digits: 110 overflows
+        cpu.state.R[5] = 0o3000
+    cpu, board = _run([ADDN], setup, 1)
+    assert cpu.state.psw.get(PSW.V)
+
+
+def test_cis_divp_by_zero():
+    def setup(cpu, board):
+        _put_packed(board, 0o2000, "10")
+        _put_packed(board, 0o2010, "00")
+        cpu.state.R[0] = (6 << 12) | 2
+        cpu.state.R[1] = 0o2000
+        cpu.state.R[2] = (6 << 12) | 2
+        cpu.state.R[3] = 0o2010
+        cpu.state.R[4] = (6 << 12) | 2
+        cpu.state.R[5] = 0o3000
+    cpu, board = _run([DIVP], setup, 1)
+    assert cpu.state.psw.get(PSW.V) and cpu.state.psw.get(PSW.C)
+
+
+def test_cis_addni_inline():
+    ADDNI = 0o076150
+    def setup(cpu, board):
+        _put_zoned(board, 0o2000, "05")
+        _put_zoned(board, 0o2010, "06")
+        _put_zoned(board, 0o3000, "000")
+        # descriptor list: desc addrs at 0o4000/0o4002/0o4004
+        board.ram.write_word(0o4000, (0 << 12) | 2)
+        board.ram.write_word(0o4002, 0o2000)
+        board.ram.write_word(0o4004, (0 << 12) | 2)
+        board.ram.write_word(0o4006, 0o2010)
+        board.ram.write_word(0o4010, (0 << 12) | 3)
+        board.ram.write_word(0o4012, 0o3000)
+    cpu, board = _run([ADDNI, 0o4000, 0o4004, 0o4010], setup, 1)
+    assert _bytes(board, 0o3000, 3) == b"011"

@@ -271,3 +271,47 @@ Version 1 is complete when all eleven criteria pass. Status after M8:
     the sandbox host (CPython 3.12, uv venv, no throttle), recorded by
     `test_determinism.py::test_measured_throughput`. `--maxspeed` (the default)
     is now an explicit CLI flag; `--debug` reports host-measured instr/s at exit.
+
+### Post-M8 device/CIS pass (TM11, RL11, PC11, KW11-P, CIS packed-decimal)
+
+35. TM11/TU10 (`devices/tm11.py`) follows SIMH pdp11_tm.c: registers
+    MTS/MTC/MTBRC/MTCMA/MTD/MTRD at 172520 (the M1 stub docstring's
+    MTTC/MTDS/... naming was approximate — SIMH's is authoritative), vector
+    000224/BR5, byte-granular NPR stealing (DMAHost gained read_byte/
+    write_byte; the Unibus supports byte transfers, §5.5). Tape commands
+    UNLOAD/READ/WRITE/WREOF/SPACEF/SPACER/WREXT/REWIND per SIMH tm_go/tm_svc;
+    record latency/rewind constants scaled from SIMH tm_time — flagged §22.4.
+    v1 models unit 0 only. Verified end-to-end through the I/O page with a
+    SIMH-framed .tap (bytes land in RAM via service_dma, DONE + BR5/224).
+36. RL11 (`devices/rl11.py`) follows SIMH pdp11_rl.c: RLCS/RLBA/RLDA/RLMP/
+    RLBAE at 174400, vector 000160/BR5, relative seeks, GSTA status queue,
+    word-at-a-time DMA, WCHK compare, 256-byte sectors, RL01=256/RL02=512
+    cylinders (rl_sector_address = (cyl*2+head)*40+sect, SIMH GET_DA). RL
+    containers autosize (SIMH AUTOSIZE): any 256-aligned file up to RL02
+    capacity pads to the drive (`open_rl`); they attach via `--rl`, NOT
+    `--disk`, because partial RK05-sized RT-11 files would be ambiguous.
+    Full RLDS error set / header CRC simplified — flagged §22.4.
+37. PC11 (`devices/pc11.py`) follows SIMH pdp11_pt.c: PRS/PRB/PPS/PPB at
+    177550, reader vector 000070 / punch 000074 at BR4; reader streams a
+    .pt raw byte container, punch is in-memory only (§16 read-only container
+    in v1 — the container is never written). Frame timing ~1000 cycles/frame
+    (PC05 1000 cps at the repo quantum) — flagged §22.4.
+38. KW11-P (`devices/kw11p.py`) follows SIMH pdp11_pclk.c: CSR/CSB/CNT at
+    172540 (the M6 stub said "170744 region" — SIMH puts the KW11-P at
+    172540; 177544/104/BR7 is the KW11-W watchdog, a different device),
+    vector 000104/BR6, rate table 100kHz/10kHz/line/10Hz scaled to the
+    §5.6 quantum like the KW11-L's 16 667-cycle tick — flagged §22.4.
+39. CIS packed-decimal arithmetic implemented in `cpu/instructions/cis.py`
+    (ADDN/SUBN/CMPN/ADDP/SUBP/CMPP/MULP/DIVP/ASHN/ASHP + inline variants;
+    opcode map cross-checked against binutils pdp11-opc.c and SIMH
+    pdp11_cis.c opntab). All 8 decimal data types (zoned/overpunch/separate/
+    packed) read/write via (sign, big-int) conversion; overpunch tables from
+    SIMH overbin/binover. CVT*/CRC remain loud NotImplementedError (§19.10).
+    FIS (0o075xxx, KEF11) likewise remains a loud stub — the arithmetic
+    opcodes are pinned by binutils (FADD/FSUB/FMUL/FDIV at 0o075000+8k+ac)
+    but the accumulator semantics are not verified from a primary source
+    here, so per §19.10 it stays loud rather than guessed.
+40. TQK11 stays a loud stub (§19.10): the IP/SA register semantics at
+    174500 are verified from SIMH pdp11_uqssp.h (IP read = poll ring,
+    IP write = re-init), but the MSCP command-ring/packet layer is not
+    implemented and is not faked.
