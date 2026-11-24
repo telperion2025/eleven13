@@ -68,6 +68,7 @@ class DL11(BusDevice):
         self.rx_ie = False
         self.tx_done = True        # transmitter ready at reset
         self.tx_ie = False
+        self._tx_byte = 0          # pending transmit byte (serializable event arg, §15)
         self._pump_on = False
         self.reset()
 
@@ -96,8 +97,11 @@ class DL11(BusDevice):
                     _log.debug("DL11 RX byte %o -> DONE", b)
             self._clock.schedule(INPUT_POLL_CYCLES, self._pump)
 
-    def _tx_complete(self, byte: int) -> None:
-        """Scheduled transmit completion: emit the byte, set DONE."""
+    def _tx_complete(self) -> None:
+        """Scheduled transmit completion: emit the pending byte, set DONE.
+        Bound method (not a lambda) so the event queue stays serializable
+        for snapshots (§15)."""
+        byte = self._tx_byte
         self._terminal.write(byte)
         self.tx_done = True
         _log.debug("DL11 TX byte %o complete", byte)
@@ -126,7 +130,8 @@ class DL11(BusDevice):
             self.tx_ie = bool(value & IE)
         elif reg == 6:                       # XMTBUF: start a transmit
             self.tx_done = False
-            self._clock.schedule(TX_CYCLES, lambda b=value & 0o377: self._tx_complete(b))
+            self._tx_byte = value & 0o377
+            self._clock.schedule(TX_CYCLES, self._tx_complete)
 
     def read_byte(self, offset: int) -> int:
         word = self.read_word(offset & 0o177776)
@@ -149,10 +154,11 @@ class DL11(BusDevice):
     # -- snapshot contract (§15) ------------------------------------------------
     def serialize(self) -> dict[str, Any]:
         return {"rxbuf": self.rxbuf, "rx_done": self.rx_done, "rx_ie": self.rx_ie,
-                "tx_done": self.tx_done, "tx_ie": self.tx_ie, "base": self.base}
+                "tx_done": self.tx_done, "tx_ie": self.tx_ie, "tx_byte": self._tx_byte,
+                "base": self.base}
 
     def deserialize(self, state: dict[str, Any]) -> None:
-        for key in ("rxbuf", "rx_done", "rx_ie", "tx_done", "tx_ie", "base"):
+        for key in ("rxbuf", "rx_done", "rx_ie", "tx_done", "tx_ie", "tx_byte", "base"):
             if key not in state:
                 raise ValueError(f"DL11 snapshot missing {key!r}")
         self.rxbuf = state["rxbuf"]
@@ -160,4 +166,5 @@ class DL11(BusDevice):
         self.rx_ie = state["rx_ie"]
         self.tx_done = state["tx_done"]
         self.tx_ie = state["tx_ie"]
+        self._tx_byte = state["tx_byte"]
         self.base = state["base"]

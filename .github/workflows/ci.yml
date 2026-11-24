@@ -1,10 +1,10 @@
 # eleven13 CI (spec §18.2 quality gates). The repo's dev extras pin the
 # toolchain via uv.lock, so every gate runs through `make` (uv run ...):
-#   test  — pytest (pdp11/tests)
-#   lint  — ruff check, zero findings
-#   type  — mypy --strict on the spec-gated modules
-# Coverage/determinism jobs of §18.2 land when pytest-cov lands (no new
-# dependencies before M8 per §18.1).
+#   gates      — make check = pytest (incl. the §18.2 determinism tests in
+#                pdp11/tests/test_determinism.py) + ruff + mypy --strict
+#   coverage   — pytest-cov per-package line-coverage gates (§18.2: cpu/ and
+#                bus/ >= 90%, devices/ >= 70%); pytest-cov joined the dev
+#                extras in M8, the milestone §18.1 allowed it from.
 name: CI
 
 on:
@@ -26,3 +26,18 @@ jobs:
           enable-cache: true
       - name: Quality gates (make check = test + lint + type)
         run: make check
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Coverage gates (spec §18.2 per-package line coverage)
+        run: |
+          uv run pytest -q --cov=pdp11.cpu --cov-fail-under=90
+          uv run pytest -q --cov=pdp11.bus --cov-fail-under=90
+          uv run pytest -q --cov=pdp11.devices --cov-fail-under=70

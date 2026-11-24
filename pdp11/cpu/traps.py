@@ -122,3 +122,12 @@ def reserved_instruction(cpu: CPU) -> None:
     """Illegal/reserved opcode: vector 000010 (§5.5). The PC pushed is the
     address AFTER the reserved word — hardware has already fetched it."""
     trap(cpu, VECTOR_RESERVED)
+
+
+def power_fail(cpu: CPU) -> None:
+    """Power-fail / power-restore: trap through vector 000024 (§5.5).
+    Injected BETWEEN instructions by --powerfail/--powerrestore (main.py),
+    so the handler sees the usual pushed PC/PSW exactly like an interrupt.
+    The ">= 2 ms simulated runtime remaining" grace of the real machine is
+    the cycle gap the operator chooses between the two injections."""
+    trap(cpu, VECTOR_POWER_FAIL)

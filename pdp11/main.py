@@ -26,6 +26,10 @@ M7: --console selects the virtual terminal (vt100/vt52/la36 escape-sequence
 frontends, graphics/vt100.py + la36.py, or the plain odt console) via
 make_terminal() below; --debug runs the extended debugger (control/debugger.py,
 §9) which supervises RUN (breakpoints/watchpoints) and owns the HALT shell.
+M8: --save/--restore are the §15 session snapshot CLI (control/snapshot.py);
+--powerfail/--powerrestore inject the vector-000024 sequence (§5.5) at the
+given bus cycles; --maxspeed is the explicit no-throttle spelling of the
+default (§14).
 """
 
 from __future__ import annotations
@@ -42,6 +46,7 @@ from pdp11.config.profiles import PROFILES, BusType, MachineProfile
 from pdp11.control.debugger import Debugger, crash_dump
 from pdp11.control.front_panel import ODT, FrontPanel
 from pdp11.control.rom_loader import attach_boot_rom
+from pdp11.control.snapshot import load_snapshot, restore_state, save_snapshot
 from pdp11.devices.dl11 import DL11
 from pdp11.devices.dz11 import DZ11
 from pdp11.devices.kw11l import KW11L
@@ -96,8 +101,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="per-run JSON overrides layered over the profile — §4.1")
     p.add_argument("--throttle", action="store_true",
                    help="slow execution to real-machine speed (default: full)")
+    p.add_argument("--maxspeed", action="store_true",
+                   help="explicit full speed — the default behavior (§14)")
     p.add_argument("--debug", action="store_true",
                    help="extended debugger on HALT (§9)")
+    p.add_argument("--save", metavar="FILE",
+                   help="write a §15 session snapshot to FILE on exit")
+    p.add_argument("--restore", metavar="FILE",
+                   help="restore a §15 session snapshot from FILE at startup")
+    p.add_argument("--powerfail", nargs="?", const="0o100000", default=None,
+                   metavar="OCT_CYCLES",
+                   help="inject the power-fail trap (vector 000024, §5.5) at OCT_CYCLES "
+                        "(default 0o100000)")
+    p.add_argument("--powerrestore", nargs="?", const="0o200000", default=None,
+                   metavar="OCT_CYCLES",
+                   help="inject the power-restore restart (vector 000024, §5.5) at "
+                        "OCT_CYCLES (default 0o200000)")
     return p
 
 
@@ -197,18 +216,31 @@ def assemble(args: argparse.Namespace, terminal: TerminalFrontend) -> SystemBoar
             rh_attached = True
         else:
             _log.info("extra RP image %s: v1 models one Massbus drive — ignored", image.path)
+    # M8: --restore loads a §15 snapshot AFTER assembly (devices attached), so
+    # the saved device/queue state maps onto the freshly attached windows.
+    if args.restore:
+        restore_state(board, load_snapshot(args.restore))
+        _log.info("restored snapshot %s (profile %s, cycle %d)",
+                  args.restore, board.profile.key, board.clock.cycle)
     return board
 
 
 def run(board: SystemBoard, terminal: TerminalFrontend, throttle: bool = False,
-        debug: bool = False) -> int:
+        debug: bool = False, powerfail: int | None = None,
+        powerrestore: int | None = None, save: str | None = None) -> int:
     """Run loop: execute until HALT, then hand to ODT (§9) — or to the extended
     debugger with --debug, which also supervises RUN (breakpoints/watchpoints,
     §9). Returns exit code. Wall-clock throttling exists ONLY here, outside
-    the deterministic core (§19.6)."""
+    the deterministic core (§19.6). --powerfail/--powerrestore schedule the
+    vector-000024 injection events (§5.5) on the deterministic clock; --save
+    writes the §15 snapshot when the session ends."""
     cpu = board.cpu
     panel = FrontPanel(board)
     dbg = Debugger(board, terminal) if debug else None
+    if powerfail is not None:
+        board.clock.schedule(powerfail, cpu.power_fail_trap)      # vector 000024 (§5.5)
+    if powerrestore is not None:
+        board.clock.schedule(powerrestore, cpu.power_fail_trap)
     t0 = time.monotonic()
     while True:
         while not cpu.state.halted:
@@ -231,6 +263,9 @@ def run(board: SystemBoard, terminal: TerminalFrontend, throttle: bool = False,
             if dbg is not None:
                 # §14 instrumentation: ips computed HERE at the §19.6 boundary
                 dbg.report_perf(time.monotonic() - t0)
+            if save is not None:
+                save_snapshot(board, save)            # §15 snapshot on exit
+                _log.info("snapshot saved to %s (cycle %d)", save, board.clock.cycle)
             return 0
         panel.run()                                    # G -> RUN (§13)
 
@@ -242,8 +277,15 @@ def main(argv: list[str] | None = None, backend: RenderBackend | None = None) ->
     host = backend if backend is not None else StdioBackend()
     terminal = make_terminal(args.console, host)      # --console frontend (§8, M7)
     board = assemble(args, terminal)
+
+    def _oct_cycles(value: str | None) -> int | None:
+        return int(value, 8) if value is not None else None   # octal CLI (§10.1)
+
     try:
-        return run(board, terminal, throttle=args.throttle, debug=args.debug)
+        return run(board, terminal, throttle=args.throttle, debug=args.debug,
+                   powerfail=_oct_cycles(args.powerfail),
+                   powerrestore=_oct_cycles(args.powerrestore),
+                   save=args.save)
     except EmulationError as exc:
         # §18.3: crash loudly with the debugger's pasteable state dump
         dump = crash_dump(board, exc)

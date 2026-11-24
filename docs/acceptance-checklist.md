@@ -1,6 +1,6 @@
 # Acceptance Checklist — spec §11, current status
 
-Version 1 is complete when all eleven criteria pass. Status after M3:
+Version 1 is complete when all eleven criteria pass. Status after M8:
 
 | # | Criterion (spec §11) | Status |
 |---|---|---|
@@ -232,3 +232,42 @@ Version 1 is complete when all eleven criteria pass. Status after M3:
     (d) `BackendTerminal`'s input queue is a `deque` (O(1) popleft); (e) the
     diagnostic harness clips RAM small instead of allocating the 22-bit
     profiles' full 4 MB ceiling.
+
+### M8 reconciliations (§12 milestone 8: snapshots, power-fail/restore, SIMH round-trips, perf)
+
+30. Snapshot format follows §15: JSON wrapper (`format`/`version`/`profile`/
+    `created` header) around a zlib+base64 **binary core** (the JSON state
+    dict). The core is deterministic — identical machine state yields
+    identical core bytes; only the header carries a timestamp. The scheduler
+    queue is serialized as absolute `(due, seq)` plus a callback reference
+    (`{"obj": "cpu"|address, "name": method}`); device event lambdas were
+    refactored to bound methods (DL11/RK11/RH70/DZ11 pending-transfer/seek
+    args now live in serialized device fields), and a non-serializable
+    callback fails loudly with `EmulationError` at save time (§18.3). The seq
+    allocator is snapshotted too — restoring `max(seq)+1` instead of the
+    clock's own `_seq` made restored runs allocate different future sequence
+    numbers (found by `test_snapshot.py`, fixed in `SystemClock.load_queue`).
+31. Power-fail/restore (§5.5 vector 000024): `--powerfail/--powerrestore
+    [OCT_CYCLES]` schedule `CPU.power_fail_trap` on the deterministic clock —
+    the trap fires between instructions with the usual pushed PC/PSW. The
+    ">= 2 ms simulated remaining" grace is the cycle gap between the two
+    flags (operator-chosen); documented in `traps.power_fail`.
+32. SIMH `.tap` framing follows the §16 text: LE32 length + payload + LE32
+    trailer (verified on read), bare zero = tape mark, final bare zero = EOF
+    mark, physical EOF = EOM. A zero-length *data* record is indistinguishable
+    from a tape mark (inherent to the framing) — flagged §22.4. Round-trips are
+    byte-identical for everything this emulator writes (`test_simh_containers.py`);
+    the SIMH cross-read of an operator-supplied real `.tap` remains §22.1.
+33. M8 coverage pass for the §18.2 gate found a real M5 bug: **CLRf with a
+    register operand (mode 0) never cleared the AC** — `_write_fp` returns
+    early for mode 0 and the CLRf branch didn't store (`cpu/instructions/fp11.py`,
+    fixed; `test_fp11_sweep.py::test_abs_neg_tst_clr_and_cfcc` pins it). The sweep
+    also lifted cpu/ to 90% (bus 97%, devices 87%); `pytest-cov` joined the dev
+    extras in M8 (the §18.1 "no new deps before M8" allowance) and ci.yml now
+    runs the per-package coverage gates plus the determinism tests
+    (`test_determinism.py`) inside `make check`.
+34. First measured throughput (§14): **~225,000 instructions/s** (1,000,000
+    instructions in 4.45 s = 4,000,000 bus cycles) for the 11/20 spin loop on
+    the sandbox host (CPython 3.12, uv venv, no throttle), recorded by
+    `test_determinism.py::test_measured_throughput`. `--maxspeed` (the default)
+    is now an explicit CLI flag; `--debug` reports host-measured instr/s at exit.

@@ -33,6 +33,12 @@ class SystemClock:
         """Current bus-cycle count (deterministic; never derived from time.*)."""
         return self._cycle
 
+    @property
+    def seq(self) -> int:
+        """The last allocated event sequence number (snapshots §15 store it so
+        restored runs allocate identical future seqs — replay is exact)."""
+        return self._seq
+
     # -- scheduling -------------------------------------------------------
     def schedule(self, after_cycles: int, callback: Callable[[], None]) -> None:
         """
@@ -45,6 +51,25 @@ class SystemClock:
         """
         self._seq += 1              # stable order for events due on the same cycle
         heapq.heappush(self._queue, (self._cycle + after_cycles, self._seq, callback))
+
+    # -- snapshot support (§15) ---------------------------------------------------
+    def pending_events(self) -> list[tuple[int, int, Callable[[], None]]]:
+        """A sorted copy of the (due_cycle, seq, callback) queue — the snapshot
+        layer (§15) serializes these; callbacks are mapped back through the
+        board's device list on restore."""
+        return sorted((d, s, f) for d, s, f in self._queue)
+
+    def load_queue(self, cycle: int, seq: int,
+                   entries: list[tuple[int, int, Callable[[], None]]]) -> None:
+        """Restore the cycle counter, seq allocator and event queue VERBATIM
+        (§15): `due`/`seq` are absolute and `seq` is the last ALLOCATED value
+        (schedule() increments before use), so replaying from the same cycle
+        reproduces the exact event order. Callbacks are rebuilt by the caller
+        (snapshot.py)."""
+        self._cycle = int(cycle)
+        self._seq = int(seq)
+        self._queue = [(int(d), int(s), f) for d, s, f in entries]
+        heapq.heapify(self._queue)
 
     # -- advancing ----------------------------------------------------------
     def advance(self, cycles: int) -> Iterator[Callable[[], None]]:

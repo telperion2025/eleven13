@@ -39,6 +39,7 @@ from collections.abc import Callable
 from pdp11.board import SystemBoard
 from pdp11.bus.abstract_bus import BusInit
 from pdp11.control.front_panel import ODT
+from pdp11.control.snapshot import save_snapshot
 from pdp11.cpu import interrupts
 from pdp11.cpu.core import COSTS, WORD_MASK
 from pdp11.cpu.mmu import MD_KER, MD_SUP, MD_USR, SPACE_D, SPACE_I
@@ -54,7 +55,7 @@ HELP = (
     "  <oct>/ examine   <oct>\\ deposit   G [oct] go   Q quit\r\n"
     "  b [oct] breakpoint   w [oct] watchpoint   s [n] step n w/ disassembly\r\n"
     "  r registers   m MMU dump   i interrupts   d devices   c containers\r\n"
-    "  p perf counters (§14)   ? help"
+    "  p perf counters (§14)   S <file> snapshot (§15)   ? help"
 )
 
 
@@ -341,6 +342,14 @@ class Debugger(ODT):
             return None
         if first == "p":
             self._emit(self.perf.report(self.board.clock.cycle) + "\r\n")
+            return None
+        if first == "S":                        # snapshot at breakpoint/halt (§15)
+            path = cmd[1:].strip()
+            if not path:
+                self._emit("usage: S <file>\r\n")
+                return None
+            save_snapshot(self.board, path)
+            self._emit(f"snapshot saved to {path} (cycle {self.board.clock.cycle})\r\n")
             return None
         if first == "?":
             self._emit(HELP + "\r\n")

@@ -339,6 +339,12 @@ class CPU:
             resolve_operand(st, bus, self.fetch_word(), False, False)
         # fmt "none" / "branch": no operand words to consume
 
+    def power_fail_trap(self) -> None:
+        """The --powerfail/--powerrestore injection event (§5.5): a bound
+        method so the scheduler queue stays serializable for snapshots (§15)
+        — scheduled via clock.schedule(cycles, cpu.power_fail_trap)."""
+        traps.power_fail(self)
+
     def fetch_word(self) -> int:
         """
         Read one instruction word and advance PC. On real hardware this is

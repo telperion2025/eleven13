@@ -287,6 +287,23 @@ class MMU:
                        bool(self.mmr0 & MMR0_TENB))
 
 
+    # -- snapshot contract (§15) -------------------------------------------------
+    def serialize(self) -> dict[str, Any]:
+        """MMR0-3 + all six APR sets (par/pdr), JSON-safe."""
+        return {"mmr0": self.mmr0, "mmr1": self.mmr1, "mmr2": self.mmr2,
+                "mmr3": self.mmr3, "par": self.par, "pdr": self.pdr}
+
+    def deserialize(self, state: dict[str, Any]) -> None:
+        """Restore MMU state; validates the schema keys (§15 contract)."""
+        for key in ("mmr0", "mmr1", "mmr2", "mmr3", "par", "pdr"):
+            if key not in state:
+                raise ValueError(f"MMU snapshot missing {key!r}")
+        self.mmr0, self.mmr1, self.mmr2, self.mmr3 = (state["mmr0"], state["mmr1"],
+                                                     state["mmr2"], state["mmr3"])
+        self.par = state["par"]
+        self.pdr = state["pdr"]
+
+
 class _MMUBase(BusDevice):
     """Common byte/word plumbing for MMU register windows."""
 
@@ -306,19 +323,10 @@ class _MMUBase(BusDevice):
             self.write_word(reg, (cur & 0o000377) | ((value & 0o377) << 8))
 
     def serialize(self) -> dict[str, Any]:
-        m = self._mmu
-        return {"mmr0": m.mmr0, "mmr1": m.mmr1, "mmr2": m.mmr2, "mmr3": m.mmr3,
-                "par": m.par, "pdr": m.pdr}
+        return self._mmu.serialize()      # §15 contract lives on the MMU itself
 
     def deserialize(self, state: dict[str, Any]) -> None:
-        m = self._mmu
-        for key in ("mmr0", "mmr1", "mmr2", "mmr3", "par", "pdr"):
-            if key not in state:
-                raise ValueError(f"MMU snapshot missing {key!r}")
-        m.mmr0, m.mmr1, m.mmr2, m.mmr3 = (state["mmr0"], state["mmr1"],
-                                          state["mmr2"], state["mmr3"])
-        m.par = state["par"]
-        m.pdr = state["pdr"]
+        self._mmu.deserialize(state)
 
 
 class MMR012Window(_MMUBase):

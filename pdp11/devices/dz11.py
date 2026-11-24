@@ -99,6 +99,7 @@ class DZ11(BusDevice):
         self.tdr = 0
         self._silo: list[int] = []       # received words: char | line<<8 | VALID
         self._tx_line = 0
+        self._tx_byte = 0                # pending TX byte (serializable event arg, §15)
         self.reset()
 
     # -- lifecycle -----------------------------------------------------------
@@ -121,8 +122,10 @@ class DZ11(BusDevice):
                     self.csr |= CSR_SA
         self._clock.schedule(INPUT_POLL_CYCLES, self._scan)
 
-    def _tx_done(self, byte: int, line: int) -> None:
-        """Scheduled transmit completion: emit on the line, set TRDY."""
+    def _tx_done(self) -> None:
+        """Scheduled transmit completion: emit on the pending line, set TRDY.
+        Bound method (not a lambda) so the event queue stays serializable (§15)."""
+        byte, line = self._tx_byte, self._tx_line
         if line == 0 and self._terminal is not None:
             self._terminal.write(byte)
         self.csr |= CSR_TRDY
@@ -172,7 +175,9 @@ class DZ11(BusDevice):
             if self.csr & CSR_MSE:
                 line = (self.csr & CSR_TLINE_MASK) >> CSR_TLINE_SHIFT
                 self.csr &= ~CSR_TRDY                 # busy while transmitting
-                self._clock.schedule(TX_CYCLES, lambda b=v & 0o377, ln=line: self._tx_done(b, ln))
+                self._tx_byte = v & 0o377
+                self._tx_line = line
+                self._clock.schedule(TX_CYCLES, self._tx_done)
 
     def read_byte(self, offset: int) -> int:
         word = self.read_word(offset & 0o177776)
@@ -199,10 +204,12 @@ class DZ11(BusDevice):
     def serialize(self) -> dict[str, Any]:
         return {"base": self.base, "br_level": self.br_level, "csr": self.csr,
                 "rbuf": self.rbuf, "lpr": self.lpr, "tcr": self.tcr, "msr": self.msr,
-                "tdr": self.tdr, "silo": list(self._silo)}
+                "tdr": self.tdr, "silo": list(self._silo),
+                "tx_byte": self._tx_byte, "tx_line": self._tx_line}
 
     def deserialize(self, state: dict[str, Any]) -> None:
-        keys = ("base", "br_level", "csr", "rbuf", "lpr", "tcr", "msr", "tdr", "silo")
+        keys = ("base", "br_level", "csr", "rbuf", "lpr", "tcr", "msr", "tdr", "silo",
+                "tx_byte", "tx_line")
         for key in keys:
             if key not in state:
                 raise ValueError(f"DZ11 snapshot missing {key!r}")
@@ -215,3 +222,5 @@ class DZ11(BusDevice):
         self.msr = state["msr"]
         self.tdr = state["tdr"]
         self._silo = list(state["silo"])
+        self._tx_byte = state["tx_byte"]
+        self._tx_line = state["tx_line"]
