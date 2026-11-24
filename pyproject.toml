@@ -13,7 +13,12 @@ requires-python = ">=3.11,<3.13"
 dependencies = []                      # core is stdlib-only; this is a hard rule (spec §18.1)
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.5", "mypy>=1.10"]
+dev = [
+    "pytest>=8",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "pytest-cov>=7.1.0",
+]
 pixel = ["pygame>=2.5"]                # optional pixel render backend (spec §8), not core
 
 [project.scripts]

@@ -157,6 +157,6 @@ gates, custom TRACE (level 5) the fetch/decode path (spec §18.3).
 | `pdp11/main.py` | CLI + assembly + run loop | done (M2) |
 | `pdp11/devices/` | DL11…KW11-P | DL11, KW11-L, RK11/RK05 (M2/M3), DZ11, RX11 (M4), **RH70+RP06/RP07 (M5)** done; rest stubbed to their milestones |
 | `pdp11/graphics/` | terminals + render backends | StdioBackend (M2); **vt100.py/la36.py frontends done (M7)**; curses/pixel post-v1 |
-| `pdp11/disk_images/` | SIMH-compatible containers | RK05/RX01 raw containers done (M3); `.tap`/`.hp` + simh_compat M8 |
-| `pdp11/control/` | ODT, debugger, snapshots, ROM loader | ODT+ROM loader (M2), **debugger (M7)** done; snapshot M8 |
+| `pdp11/control/` | ODT, debugger, snapshots, ROM loader | ODT+ROM loader (M2), debugger (M7), **snapshots (M8)** done |
+| `pdp11/disk_images/` | SIMH-compatible containers | RK05/RX01 raw (M3), RP06/RP07 (M5); **`.tap`/`PtImage` + simh_compat exporters (M8)**; SIMH cross-read of operator-supplied images §22.1 |
 | `pdp11/tests/` | skeleton + golden + device/diagnostic suites | 205 tests green through M7 (`test_vt100.py`, `test_la36.py`, `test_debugger.py`, `machine_diagnostics.py` §11.1 harness) |

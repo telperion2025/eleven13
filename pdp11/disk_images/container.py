@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import logging
 import os
+import struct
 
 _log = logging.getLogger(__name__)
 
@@ -138,6 +139,118 @@ def rk05_sector_address(cylinder: int, surface: int, sector: int) -> int:
             and 0 <= sector < RK05_SECTORS_PER_TRACK):
         raise ValueError(f"bad RK05 address cyl={cylinder} surf={surface} sect={sector}")
     return (cylinder * RK05_SURFACES + surface) * RK05_SECTORS_PER_TRACK + sector
+
+
+# -- SIMH magtape (.tap) and PC11 paper tape (.pt) containers (M8, §16) --------
+#
+# SIMH .tap framing (spec §16, hard requirement — tm11/tqk11 must read/write
+# SIMH-created .tap byte-compatibly): each record is a 32-bit LITTLE-ENDIAN
+# length header, the raw record bytes, then a trailing 32-bit length (verified
+# equal on read). A bare 32-bit zero is a tape mark (EOF marker; it has NO
+# trailing length). Physical end of file after the last record/marks is EOM.
+# A real SIMH-created .tap cross-check awaits the operator (§22.1); the framing
+# here is pinned to the §16 text and round-trip tested byte-exactly.
+
+TAP_MARK: bytes | None = None   # tape mark = None entry in TapImage.records
+
+
+def frame_tap_record(record: bytes) -> bytes:
+    """Frame one .tap record: LE32 length + payload + LE32 length (§16)."""
+    n = len(record)
+    return struct.pack("<I", n) + record + struct.pack("<I", n)
+
+
+TAP_EOF_MARK = struct.pack("<I", 0)   # bare zero length: EOF / tape mark (§16)
+
+
+def parse_tap(data: bytes) -> list[bytes | None]:
+    """Parse .tap bytes into records; None entries are tape marks. The final
+    bare zero (if present) is the EOF mark and is not returned as a record.
+    Malformed framing raises ValueError (user-facing, §18.3 layer 3)."""
+    records: list[bytes | None] = []
+    pos = 0
+    while pos + 4 <= len(data):
+        (n,) = struct.unpack_from("<I", data, pos)
+        pos += 4
+        if n == 0:
+            if pos == len(data):
+                break                       # trailing EOF mark — not a record
+            records.append(TAP_MARK)        # mid-file tape mark (no trailer)
+            continue
+        if pos + n + 4 > len(data):
+            raise ValueError("truncated .tap record (header/payload/trailer mismatch)")
+        (trailer,) = struct.unpack_from("<I", data, pos + n)
+        if trailer != n:
+            raise ValueError(f".tap trailer {trailer} != header {n} (corrupt record)")
+        records.append(data[pos:pos + n])
+        pos += n + 4
+    if pos != len(data):
+        raise ValueError("trailing garbage at end of .tap file (not 4-byte aligned)")
+    return records
+
+
+def frame_tap(records: list[bytes | None]) -> bytes:
+    """Serialize records to .tap bytes, appending the EOF mark (§16)."""
+    out = bytearray()
+    for rec in records:
+        out += TAP_EOF_MARK if rec is None else frame_tap_record(rec)
+    out += TAP_EOF_MARK                     # EOF marker at end of medium
+    return bytes(out)
+
+
+class TapImage:
+    """A SIMH .tap magtape container, read/written losslessly (§16, §11.10).
+    `records` holds the tape's records in order; tape marks are None entries."""
+
+    def __init__(self, path: str, records: list[bytes | None] | None = None) -> None:
+        self.path = path
+        self._pos = 0                       # read cursor (record index)
+        if records is not None:
+            self.records = records
+        elif os.path.exists(path):
+            with open(path, "rb") as fh:
+                self.records = parse_tap(fh.read())
+        else:
+            self.records = []
+            self.flush()
+        _log.info("tape container %s: %d records", path, len(self.records))
+
+    def flush(self) -> None:
+        """Write the tape back, byte-compatible with the SIMH framing (§16)."""
+        with open(self.path, "wb") as fh:
+            fh.write(frame_tap(self.records))
+
+    def read_record(self) -> bytes | None | int:
+        """Next record from the cursor: bytes, None for a tape mark, -1 at EOM."""
+        if self._pos >= len(self.records):
+            return -1
+        rec = self.records[self._pos]
+        self._pos += 1
+        return rec
+
+    def rewind(self) -> None:
+        """Rewind the read cursor to the start of the tape."""
+        self._pos = 0
+
+
+class PtImage:
+    """A PC11 paper tape container: SIMH .pt is a raw byte stream (read-only
+    in v1, §16); written back byte-exactly for round-trip tests (§11.10)."""
+
+    def __init__(self, path: str, data: bytes | None = None) -> None:
+        self.path = path
+        if data is not None:
+            self.data = bytearray(data)
+        elif os.path.exists(path):
+            with open(path, "rb") as fh:
+                self.data = bytearray(fh.read())
+        else:
+            self.data = bytearray()
+            self.flush()
+
+    def flush(self) -> None:
+        with open(self.path, "wb") as fh:
+            fh.write(self.data)
 
 
 def open_disk_image(path: str) -> RawDiskImage:

@@ -30,6 +30,7 @@ range checks are flagged §22.4 in docs/acceptance-checklist.md.
 from __future__ import annotations
 
 from fractions import Fraction
+from typing import Any
 
 # -- FPS bits -------------------------------------------------------------------
 FPS_C = 0o000001
@@ -75,6 +76,21 @@ class FP11:
         self.fec = 0
         self.fea = 0
         self.ac: list[int] = [0] * 6     # each a 64-bit word (h<<32 | l)
+
+    # -- snapshot contract (§15) ---------------------------------------------
+    def serialize(self) -> dict[str, Any]:
+        """FPS/FEC/FEA + the six 64-bit accumulators, JSON-safe."""
+        return {"fps": self.fps, "fec": self.fec, "fea": self.fea, "ac": list(self.ac)}
+
+    def deserialize(self, state: dict[str, Any]) -> None:
+        """Restore FP11 state; validates the schema keys (§15 contract)."""
+        for key in ("fps", "fec", "fea", "ac"):
+            if key not in state:
+                raise ValueError(f"FP11 snapshot missing {key!r}")
+        if len(state["ac"]) != 6:
+            raise ValueError("FP11 snapshot must hold exactly 6 accumulators")
+        self.fps, self.fec, self.fea = state["fps"], state["fec"], state["fea"]
+        self.ac = [int(a) for a in state["ac"]]
 
     # -- format conversions --------------------------------------------------
     def _unpack(self, w: int, p: int) -> tuple[int, int, int]:

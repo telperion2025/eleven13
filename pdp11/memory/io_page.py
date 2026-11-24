@@ -44,6 +44,12 @@ class IOPPage:  # (name kept short; "page" is the DEC term, not VM paging)
         self._ranges.append((start_off, device.window_size, device))
         self._map[start_off] = device  # simple offset->device routing map
 
+    def windows(self) -> list[tuple[int, BusDevice]]:
+        """All attached (address, device) windows in attach order — the
+        snapshot layer (§15) enumerates state through this; restore matches
+        by (address, name)."""
+        return [(self._base + start, dev) for start, _, dev in self._ranges]
+
     def _resolve(self, addr: int) -> tuple[BusDevice, int]:
         """Map a physical address to (device, offset-in-window).
         Raises BusInit on a window miss — the machine's bus_error_model

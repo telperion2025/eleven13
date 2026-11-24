@@ -217,6 +217,7 @@ class RK11(BusDevice):
         self._buffer = bytearray(RK05_SECTOR)
         self._buf_pos = 0           # words moved within the current sector
         self._remaining = 0         # words left per RKWC
+        self._seek_target = 0       # pending seek target (serializable event arg, §15)
         self.reset()
 
     # -- lifecycle -------------------------------------------------------------
@@ -316,10 +317,11 @@ class RK11(BusDevice):
             self._error(RKER_BAD_ADDR)
             return
         delay = self.drive.seek_delay(target)
-        self._clock.schedule(delay, lambda t=target: self._seek_done(t))
+        self._seek_target = target          # bound method: queue stays serializable (§15)
+        self._clock.schedule(delay, self._seek_done)
 
-    def _seek_done(self, target_cylinder: int) -> None:
-        self.drive.cylinder = target_cylinder
+    def _seek_done(self) -> None:
+        self.drive.cylinder = self._seek_target
         self._complete()
 
     def _begin_transfer(self, fct: int) -> None:
@@ -413,12 +415,13 @@ class RK11(BusDevice):
             "sectors_read": self.drive.sectors_read,
             "sectors_written": self.drive.sectors_written,
             "image_path": self.drive.image.path if self.drive.image else None,
+            "seek_target": self._seek_target,
         }
 
     def deserialize(self, state: dict[str, Any]) -> None:
         keys = ("base", "rkds", "rker", "rkcs", "rkwc", "rkba", "rkda", "active",
                 "writing", "buf_pos", "remaining", "buffer", "drive_cylinder",
-                "sectors_read", "sectors_written", "image_path")
+                "sectors_read", "sectors_written", "image_path", "seek_target")
         for key in keys:
             if key not in state:
                 raise ValueError(f"RK11 snapshot missing {key!r}")
@@ -437,5 +440,6 @@ class RK11(BusDevice):
         self.drive.cylinder = state["drive_cylinder"]
         self.drive.sectors_read = state["sectors_read"]
         self.drive.sectors_written = state["sectors_written"]
+        self._seek_target = state["seek_target"]
         # the container itself is re-attached by the host (main.py) in M8;
         # v1 restores controller state and records the image path

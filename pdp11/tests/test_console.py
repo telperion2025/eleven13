@@ -471,3 +471,59 @@ def test_1103_bootstrap_via_la36_frontend():
     assert rc == 0
     assert "non-authentic" in backend.text()
     assert "\r\n" in backend.text()                # lines flushed with CR LF
+
+
+# -- M8: power-fail/restore (vector 000024, §5.5/§11.9) + snapshot CLI (§15) -------
+
+
+def test_powerfail_and_restore_trap_vector_024():
+    """§11.9 shape: injected --powerfail/--powerrestore events trap through
+    vector 000024; the handler runs once per injection and the machine keeps
+    running; two fresh runs are cycle-identical (deterministic injection)."""
+    from pdp11.tests.cpu_golden import make_machine
+    handler = [0o012737, 0o000001, 0o002000,       # MOV #1,@#0o2000  (flag)
+               0o005237, 0o002002,                 # INC @#0o2002      (count)
+               0o000002]                           # RTI
+
+    def build_and_run():
+        cpu, board = make_machine("11/20", program=[0o000777], pc=0o1000)
+        for i, w in enumerate(handler):
+            board.ram.write_word(0o1100 + 2 * i, w)
+        board.ram.write_word(0o0024, 0o001100)     # vector 000024 -> handler
+        board.ram.write_word(0o0026, 0o000340)     #   new PSW: IPL 7
+        board.clock.schedule(0o2000, cpu.power_fail_trap)    # --powerfail
+        board.clock.schedule(0o4000, cpu.power_fail_trap)    # --powerrestore
+        steps = 0
+        while steps < 3000:
+            cpu.step()
+            steps += 1
+        return board
+
+    b1 = build_and_run()
+    b2 = build_and_run()
+    assert b1.ram.read_word(0o002000) == 1         # handler ran
+    assert b1.ram.read_word(0o002002) == 2         # once per injection (fail + restore)
+    assert b1.clock.cycle == b2.clock.cycle        # deterministic
+    assert not b1.cpu.state.halted                 # machine still running
+
+
+def test_save_restore_powerflag_maxspeed_cli(tmp_path):
+    """M8 CLI wiring: --save writes a §15 snapshot on exit; --restore loads it;
+    --powerfail/--powerrestore/--maxspeed parse (octal cycles, §10.1)."""
+    import json
+
+    import pytest
+
+    snap = tmp_path / "s.json"
+    rc = main(["--machine", "11/20", "--save", str(snap),
+               "--powerfail", "0o100", "--powerrestore", "0o200", "--maxspeed"],
+              backend=FakeBackend(b"Q\n"))
+    assert rc == 0 and snap.exists()
+    wrapper = json.loads(snap.read_text(encoding="utf-8"))
+    assert wrapper["format"] == "eleven13-snapshot" and wrapper["profile"] == "11/20"
+    assert wrapper["version"] == 1 and isinstance(wrapper["core"], str)
+    rc = main(["--machine", "11/20", "--restore", str(snap)], backend=FakeBackend(b"Q\n"))
+    assert rc == 0
+    # restoring a snapshot into a different profile is user-facing misuse (§18.3)
+    with pytest.raises(ValueError, match="profile"):
+        main(["--machine", "11/03", "--restore", str(snap)], backend=FakeBackend(b"Q\n"))

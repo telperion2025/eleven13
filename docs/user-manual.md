@@ -32,8 +32,8 @@ python -m pdp11.main --machine 11/20 ...     # identical, module form
 | `--throttle` | Slow execution to real-machine speed. Default is full speed (`--maxspeed` stance, spec §14). Throttling lives only in `main.py`, never in the machine core. | M2+ |
 | `--maxspeed` | Explicit no-throttle (default behavior). | M2+ |
 | `--debug` | Extended debugger: supervises RUN (breakpoints/watchpoints) and owns the HALT shell (spec §9). | M7 |
-| `--save FILE` / `--restore FILE` | Session snapshot save/restore (spec §15). | M8 |
-| `--powerfail` / `--powerrestore` | Inject the power-fail / power-restore sequence through vector 000024 so OS shutdown/restart code paths are testable (spec §5.5, §11.9). | M8 |
+| `--save FILE` / `--restore FILE` | Session snapshot save/restore (spec §15) — saved on exit, restored after assembly. | M8 |
+| `--powerfail [OCT_CYCLES]` / `--powerrestore [OCT_CYCLES]` | Inject the power-fail / power-restore trap through vector 000024 at the given bus cycle (default 0o100000 / 0o200000), so OS shutdown/restart code paths are testable (spec §5.5, §11.9). | M8 |
 
 All numeric CLI arguments that denote machine quantities are **octal**
 (spec §10.1), e.g. `--memory 0o20000`.
@@ -108,20 +108,35 @@ last 8 dispatched opcodes, clock cycle — and exit 1.
 
 ## 5. Snapshots (`--save` / `--restore`, M8)
 
-A snapshot captures the full CPU state, MMU/map state (11/70, 11/94), RAM/ROM
-contents, every device's registers and internal state (each device implements
-`serialize()`/`deserialize()` as part of the `BusDevice` contract, spec §15),
-and the scheduler's event queue + cycle counter. Restore is exact: continuing
-from a snapshot produces byte-identical subsequent bus traffic (spec §11.8).
-Format: JSON wrapper around a binary core image, introspectable in a hex
-editor.
+A snapshot captures the full CPU state (incl. FP11 and per-mode SP banks),
+MMU/map state (11/70, 11/94), RAM/ROM contents, every device's registers and
+internal state (each device implements `serialize()`/`deserialize()` as part
+of the `BusDevice` contract, spec §15), and the scheduler's event queue +
+cycle counter + sequence allocator. Restore is exact: continuing from a
+snapshot produces byte-identical subsequent bus traffic (spec §11.8), pinned
+by `test_snapshot.py` and `test_determinism.py`. Format: a JSON wrapper
+(`format`/`version`/`profile`/`created` header) around a zlib+base64 binary
+core image — still introspectable in a hex editor. In the debugger, `S <file>`
+snapshots at the current breakpoint/halt (§15).
+
+```sh
+eleven13 --machine 11/70 --disk rp06.dsk --save boot.snap.json
+# ... later:
+eleven13 --machine 11/70 --disk rp06.dsk --restore boot.snap.json
+```
+
+Restoring a snapshot into a different profile (or RAM size) is rejected with
+an actionable `ValueError` (§18.3 layer 3).
 
 ## 6. Power-fail / power-restore (`--powerfail` / `--powerrestore`, M8)
 
-Injects the vector-000024 power-fail trap (with ≥ 2 ms simulated runtime
-remaining before "death") and the power-restore restart, so RSTS/RSX-style
-orderly shutdown and auto-restart are testable without real power events
-(spec §5.5, §11.9).
+`--powerfail OCT_CYCLES` schedules the vector-000024 power-fail trap on the
+deterministic clock; `--powerrestore OCT_CYCLES` schedules the restore
+restart the same way. The handler at 000024 sees the usual pushed PC/PSW; the
+"≥ 2 ms simulated runtime remaining" of the real machine is the cycle gap you
+choose between the two flags. RSTS/RSX-style orderly shutdown and auto-restart
+code paths become testable without real power events (spec §5.5, §11.9) —
+`test_console.py::test_powerfail_and_restore_trap_vector_024` shows the shape.
 
 ## 7. Exit status
 

@@ -241,7 +241,10 @@ def instr_FP11(cpu: CPU) -> None:
         elif fop == 0o01:                          # CLRf/TSTf/ABSf/NEGf
             ea = _ea_fp(cpu, spec, lenf)
             if ac == 0:                            # CLRf
-                _write_fp(cpu, ea, spec, lenf, 0)
+                if ea >= 0:
+                    _write_fp(cpu, ea, spec, lenf, 0)
+                else:
+                    fp.ac[spec & 7] = 0            # mode 0: the operand IS the AC
                 fp.fps = (fp.fps & ~FPS_CC) | 0o4   # Z
             else:
                 w = _read_fp(cpu, ea, spec, lenf)
