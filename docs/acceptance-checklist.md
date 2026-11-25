@@ -320,3 +320,13 @@ Version 1 is complete when all eleven criteria pass. Status after M8:
     byte-compatibly (TapImage, §16); control set SCC/GUS/ONL/AVL/ABO/GCS.
     Interrupt vector is programmed in init step 1 (SA_S1H_VEC<<2), BR5.
     Pinned by pdp11/tests/test_tqk11.py (16 tests).
+41. VT11-class vector display (graphics/framebuffer.py, regs at 176600,
+    window 0o40) is implemented: DPC/MPR/XPR/YPR register file (VS60-only
+    offsets NXM as in SIMH), the display-list engine (mode set / DNOP /
+    DSTOP / JMPA control words; point, short+long vector, graphplot X/Y,
+    relative point, char modes) rendering into a 1024x1024 (VR17) or
+    1024x768 (VR14) 1-bit framebuffer, one display-file word per stolen
+    NPR cycle; STOP interrupt at vector base 0320, BR4. Cross-checked
+    against SIMH pdp11_vt.c + display/vt11.c and DEC EK-VT11-TM-001
+    (bitsavers.org/pdf/dec/graphics/VT11). Attached via `--vt11`.
+    Pinned by pdp11/tests/test_vt11.py (15 tests).
