@@ -57,6 +57,7 @@ from pdp11.devices.rk11_rk05 import RK05, RK11
 from pdp11.devices.rl11 import RL11, RLDrive
 from pdp11.devices.rx11 import RX11
 from pdp11.devices.tm11 import TM11
+from pdp11.devices.tqk11 import TQK11
 from pdp11.disk_images.container import (
     RK05_SECTOR,
     RP06_SECTORS,
@@ -89,6 +90,7 @@ RL11_BASE = 0o174400
 RX11_BASE = 0o177170
 DZ11_BASE = 0o160100
 TM11_BASE = 0o172520
+TQK11_BASE = 0o174500
 PC11_BASE = 0o177550
 # RH70_BASE imported from bus.massbus (0o176700)
 
@@ -194,6 +196,7 @@ def assemble(args: argparse.Namespace, terminal: TerminalFrontend) -> SystemBoar
     rh_attached = False
     rl_attached = False
     tm_attached = False
+    tqk11_attached = False
     pc_attached = False
     for name in requested:
         if name == "dl11_console":
@@ -222,6 +225,10 @@ def assemble(args: argparse.Namespace, terminal: TerminalFrontend) -> SystemBoar
             tape_img = tapes.pop(0) if tapes else None
             board.attach_device(TM11_BASE, TM11(clock, board.dma_host, tape_img))
             tm_attached = True
+        elif name == "tqk11":
+            tape_img = tapes.pop(0) if tapes else None
+            board.attach_device(TQK11_BASE, TQK11(clock, board.dma_host, tape_img))
+            tqk11_attached = True
         elif name == "rl11":
             rl_img = rl_images.pop(0) if rl_images else None
             board.attach_device(RL11_BASE, RL11(clock, board.dma_host, RLDrive(rl_img)))
@@ -263,11 +270,14 @@ def assemble(args: argparse.Namespace, terminal: TerminalFrontend) -> SystemBoar
         else:
             _log.info("extra RL image %s: v1 models drive unit 0 only — ignored", image.path)
     for tape_img in tapes:
-        if not tm_attached:
+        if not tm_attached and profile.bus is BusType.UNIBUS:
             board.attach_device(TM11_BASE, TM11(clock, board.dma_host, tape_img))
             tm_attached = True
+        elif not tqk11_attached:
+            board.attach_device(TQK11_BASE, TQK11(clock, board.dma_host, tape_img))
+            tqk11_attached = True
         else:
-            _log.info("extra tape %s: v1 models one TM11 drive — ignored", tape_img.path)
+            _log.info("extra tape %s: v1 models one tape drive — ignored", tape_img.path)
     for pt in paper_tapes:
         if not pc_attached:
             board.attach_device(PC11_BASE, PC11(clock, pt))
