@@ -306,8 +306,9 @@ Version 1 is complete when all eleven criteria pass. Status after M8:
     opcode map cross-checked against binutils pdp11-opc.c and SIMH
     pdp11_cis.c opntab). All 8 decimal data types (zoned/overpunch/separate/
     packed) read/write via (sign, big-int) conversion; overpunch tables from
-    SIMH overbin/binover. CVT*/CRC remain the last loud NotImplementedError
-    stub (§19.10) — see item 42's note on FIS, now implemented.
+    SIMH overbin/binover. The CVT* conversions are implemented (item 43);
+    there is no CIS "CRC" opcode — DEC STD 168 App. A, SIMH and binutils
+    all leave the unused 0o076xxx slots reserved, and they trap 000010 here.
 40. TQK11 (TK50/TU81 via Q-Bus 174500, 11/94) is implemented: IP/SA semantics,
     the 4-step UQSSP init handshake, and the MSCP command/response-ring
     layer, cross-checked against SIMH pdp11_tq.c + pdp11_uqssp.h +
@@ -339,3 +340,15 @@ Version 1 is complete when all eleven criteria pass. Status after M8:
     cleaned to +0; FDIV by zero sets N=V=C=1 and traps 000244 (FEC stays 0);
     overflow/underflow set V (N too on underflow) + FEC/FEA and trap 000244
     (fis11 forces FPS = IU|IV). Pinned by pdp11/tests/test_fis.py (16 tests).
+43. CIS conversions (CVTNL/CVTPN/CVTNP/CVTPL/CVTLN/CVTLP, register and
+    inline 0o15x/0o17x forms) are implemented in `cpu/instructions/cis.py`
+    (_cvt), per SIMH pdp11_cis.c cases 053/054/055/057/073/077: string<->long
+    (long in R2:R3 or an inline descriptor / longword, low word at the lower
+    address), packed<->numeric with the PACKED flag (op & 0o020) forcing the
+    format regardless of declared type; CVTNL/CVTPL set N/Z from the 32-bit
+    result, V on signed-32 overflow, C = negative source with nonzero result;
+    the string-writing CVTs set CCs per SIMH WriteDstr (V on destination
+    length overflow, N = stored sign & ~Z, C = 0). Pinned by 13 tests in
+    pdp11/tests/test_cis.py. Known corners flagged §22.4: forced-packed
+    reads accept sign nibble D only (SIMH also takes B), and a packed declared
+    type in a numeric-format CVT is treated as unsigned zoned.

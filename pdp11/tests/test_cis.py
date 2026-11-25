@@ -3,16 +3,14 @@ M6: CIS character-string instructions on the 11/94 (J-11 on-chip CIS;
 spec §3/§5.4) — the 0o076xxx group per SIMH pdp11_cis.c: MOVC/MOVRC/MOVTC,
 LOCC/SKPC, SCANC/SPANC, CMPC, MATC, L2DR/L3DR, and the inline-operand
 variants (bit 6). Packed-decimal arithmetic (ADDN/SUBN/CMPN/ADDP/SUBP/CMPP/
-MULP/DIVP/ASHN/ASHP) is implemented; CVT*/CRC still raise NotImplementedError
-(§19.10/§22.4). On profiles without the CIS cap the group traps reserved
-(000010).
+MULP/DIVP/ASHN/ASHP) plus the conversions (CVTNL/CVTPN/CVTNP/CVTPL/CVTLN/
+CVTLP, register + inline) are implemented per SIMH pdp11_cis.c. On profiles
+without the CIS cap the group traps reserved (000010).
 """
 
 from __future__ import annotations
 
-import pytest
-
-from pdp11.cpu.registers import PSW
+from pdp11.cpu.registers import PSW, Reg
 from pdp11.tests.cpu_golden import make_machine, one_step, step_n
 
 MOVC, MOVRC, MOVTC = 0o076030, 0o076031, 0o076032
@@ -329,9 +327,191 @@ def test_cis_mulp_divp_packed():
     assert _bytes(board2, 0o3000, 3) == bytes([0x00, 0x00, 0xC0])  # 0 (6/7)
 
 
-def test_cis_cvt_ops_still_loud_stub():
-    with pytest.raises(NotImplementedError):
-        one_step([CVTNL], profile_key="11/94")
+# --- CVT* conversions (SIMH pdp11_cis.c cases 053/054/055/057/073/077) -------
+
+CVTNL, CVTPN, CVTNP, CVTLN = 0o076053, 0o076054, 0o076055, 0o076057
+CVTPL, CVTLP = 0o076073, 0o076077
+CVTNLI, CVTPNI, CVTNPI, CVTLNI = 0o076153, 0o076154, 0o076155, 0o076157
+CVTPLI, CVTLPI = 0o076173, 0o076177
+
+
+def test_cis_cvtnl_zoned_to_long():
+    def setup(cpu, board):
+        _put_zoned(board, 0o2000, "123")
+        cpu.state.R[0] = (0 << 12) | 3          # signed zoned, 3 digits
+        cpu.state.R[1] = 0o2000
+    cpu, board = _run([CVTNL], setup, 1)
+    assert cpu.state.R[2] == 0 and cpu.state.R[3] == 123
+    assert cpu.state.R[0] == 0 and cpu.state.R[1] == 0
+    assert not cpu.state.psw.get(PSW.N) and not cpu.state.psw.get(PSW.Z)
+    assert not cpu.state.psw.get(PSW.V) and not cpu.state.psw.get(PSW.C)
+
+
+def test_cis_cvtnl_negative_sets_n_and_c():
+    def setup(cpu, board):
+        _put_zoned(board, 0o2000, "45", sign_neg=True)
+        cpu.state.R[0] = (0 << 12) | 2
+        cpu.state.R[1] = 0o2000
+    cpu, board = _run([CVTNL], setup, 1)
+    r = (-45) & 0xFFFFFFFF
+    assert cpu.state.R[2] == (r >> 16) & 0o177777
+    assert cpu.state.R[3] == r & 0o177777
+    assert cpu.state.psw.get(PSW.N) and cpu.state.psw.get(PSW.C)
+    assert not cpu.state.psw.get(PSW.V) and not cpu.state.psw.get(PSW.Z)
+
+
+def test_cis_cvtnl_overflow_sets_v():
+    def setup(cpu, board):
+        _put_zoned(board, 0o2000, "3000000000")  # > 2^31-1
+        cpu.state.R[0] = (0 << 12) | 10
+        cpu.state.R[1] = 0o2000
+    cpu, board = _run([CVTNL], setup, 1)
+    r = 3000000000 & 0xFFFFFFFF
+    assert cpu.state.R[2] == (r >> 16) & 0o177777 and cpu.state.R[3] == r & 0o177777
+    assert cpu.state.psw.get(PSW.V) and cpu.state.psw.get(PSW.N)
+    assert not cpu.state.psw.get(PSW.C) and not cpu.state.psw.get(PSW.Z)
+
+
+def test_cis_cvtnl_zero_sets_z():
+    def setup(cpu, board):
+        _put_zoned(board, 0o2000, "000")
+        cpu.state.R[0] = (0 << 12) | 3
+        cpu.state.R[1] = 0o2000
+    cpu, board = _run([CVTNL], setup, 1)
+    assert cpu.state.R[2] == 0 and cpu.state.R[3] == 0
+    assert cpu.state.psw.get(PSW.Z) and not cpu.state.psw.get(PSW.N)
+    assert not cpu.state.psw.get(PSW.V) and not cpu.state.psw.get(PSW.C)
+
+
+def test_cis_cvtpl_reads_packed_regardless_of_declared_type():
+    def setup(cpu, board):
+        _put_packed(board, 0o2000, "00123")
+        cpu.state.R[0] = (0 << 12) | 5          # declared zoned; CVTPL forces packed
+        cpu.state.R[1] = 0o2000
+    cpu, board = _run([CVTPL], setup, 1)
+    assert cpu.state.R[2] == 0 and cpu.state.R[3] == 123
+    assert not cpu.state.psw.get(PSW.V) and not cpu.state.psw.get(PSW.C)
+
+
+def test_cis_cvtpn_packed_to_zoned():
+    def setup(cpu, board):
+        _put_packed(board, 0o2000, "00123")
+        cpu.state.R[0] = (0 << 12) | 5          # declared zoned; CVTPN forces packed read
+        cpu.state.R[1] = 0o2000
+        cpu.state.R[2] = (0 << 12) | 5          # dst: signed zoned, 5 digits
+        cpu.state.R[3] = 0o3000
+    cpu, board = _run([CVTPN], setup, 1)
+    assert _bytes(board, 0o3000, 5) == b"00123"
+    assert cpu.state.R[0] == 0 and cpu.state.R[1] == 0
+    assert cpu.state.R[2] == (0 << 12) | 5 and cpu.state.R[3] == 0o3000
+    assert not cpu.state.psw.get(PSW.N) and not cpu.state.psw.get(PSW.V)
+    assert not cpu.state.psw.get(PSW.C)
+
+
+def test_cis_cvtnp_zoned_to_packed():
+    def setup(cpu, board):
+        _put_zoned(board, 0o2000, "123")
+        cpu.state.R[0] = (0 << 12) | 3
+        cpu.state.R[1] = 0o2000
+        cpu.state.R[2] = (6 << 12) | 5          # dst: signed packed, 5 digits
+        cpu.state.R[3] = 0o3000
+    cpu, board = _run([CVTNP], setup, 1)
+    assert _bytes(board, 0o3000, 3) == bytes([0x00, 0x12, 0x3C])
+    assert not cpu.state.psw.get(PSW.N) and not cpu.state.psw.get(PSW.V)
+
+
+def test_cis_cvtnp_negative_and_length_overflow():
+    def setup(cpu, board):
+        _put_zoned(board, 0o2000, "123", sign_neg=True)
+        cpu.state.R[0] = (0 << 12) | 3
+        cpu.state.R[1] = 0o2000
+        cpu.state.R[2] = (6 << 12) | 2          # dst: 2 packed digits
+        cpu.state.R[3] = 0o3000
+    cpu, board = _run([CVTNP], setup, 1)
+    assert _bytes(board, 0o3000, 2) == bytes([0x23, 0xD0])   # -123 -> 23, sign D
+    assert cpu.state.psw.get(PSW.N) and cpu.state.psw.get(PSW.V)  # sign kept, overflow
+    assert not cpu.state.psw.get(PSW.C) and not cpu.state.psw.get(PSW.Z)
+
+
+def test_cis_cvtln_long_to_zoned():
+    def setup(cpu, board):
+        cpu.state.R[0] = (0 << 12) | 5          # dst: signed zoned, 5 digits
+        cpu.state.R[1] = 0o3000
+        cpu.state.R[2] = 0
+        cpu.state.R[3] = 123
+    cpu, board = _run([CVTLN], setup, 1)
+    assert _bytes(board, 0o3000, 5) == b"00123"
+    assert cpu.state.R[2] == 0 and cpu.state.R[3] == 0
+    assert not cpu.state.psw.get(PSW.N) and not cpu.state.psw.get(PSW.V)
+
+
+def test_cis_cvtln_negative():
+    def setup(cpu, board):
+        cpu.state.R[0] = (0 << 12) | 3
+        cpu.state.R[1] = 0o3000
+        cpu.state.R[2] = 0o177777
+        cpu.state.R[3] = (-45) & 0o177777
+    cpu, board = _run([CVTLN], setup, 1)
+    assert _bytes(board, 0o3000, 3) == b"04\xb5"           # '5' with sign bit
+    assert cpu.state.psw.get(PSW.N) and not cpu.state.psw.get(PSW.Z)
+    assert not cpu.state.psw.get(PSW.V) and not cpu.state.psw.get(PSW.C)
+
+
+def test_cis_cvtlp_long_to_packed():
+    def setup(cpu, board):
+        cpu.state.R[0] = (6 << 12) | 5
+        cpu.state.R[1] = 0o3000
+        cpu.state.R[2] = 0
+        cpu.state.R[3] = 123
+    cpu, board = _run([CVTLP], setup, 1)
+    assert _bytes(board, 0o3000, 3) == bytes([0x00, 0x12, 0x3C])
+    assert cpu.state.R[2] == 0 and cpu.state.R[3] == 0
+
+
+def test_cis_cvtnli_inline():
+    # CVTNLI: inline words = src descriptor address, dest longword address
+    cpu, board = make_machine("11/94", program=[CVTNLI, 0o2000, 0o3000], pc=0o100)
+    _put_zoned(board, 0o2020, "123")
+    board.ram.write_word(0o2000, (0 << 12) | 3)   # src descriptor
+    board.ram.write_word(0o2002, 0o2020)
+    step_n(cpu, 1)
+    assert board.ram.read_word(0o3000) == 123              # low word first
+    assert board.ram.read_word(0o3002) == 0                # high word
+    assert cpu.state.R[Reg.PC] == 0o106                    # opcode + 2 inline words
+    assert cpu.state.R[2] == 0 and cpu.state.R[3] == 0     # registers untouched
+
+
+def test_cis_cvtlni_inline():
+    # CVTLNI: inline words = dst descriptor address, source long descriptor
+    cpu, board = make_machine("11/94", program=[CVTLNI, 0o2000, 0o2010], pc=0o100)
+    board.ram.write_word(0o2000, (0 << 12) | 5)   # dst descriptor: zoned, 5
+    board.ram.write_word(0o2002, 0o3000)
+    board.ram.write_word(0o2010, 123)             # source long: low word
+    board.ram.write_word(0o2012, 0)               # high word
+    step_n(cpu, 1)
+    assert _bytes(board, 0o3000, 5) == b"00123"
+    assert cpu.state.R[Reg.PC] == 0o106
+
+
+def test_cis_cvtpni_inline():
+    # CVTPNI: inline words = src descriptor address, dst descriptor address
+    cpu, board = make_machine("11/94", program=[CVTPNI, 0o2000, 0o2010], pc=0o100)
+    _put_packed(board, 0o2020, "00123")
+    board.ram.write_word(0o2000, (0 << 12) | 5)   # src declared zoned (forced packed)
+    board.ram.write_word(0o2002, 0o2020)
+    board.ram.write_word(0o2010, (0 << 12) | 5)   # dst descriptor: zoned, 5
+    board.ram.write_word(0o2012, 0o3000)
+    step_n(cpu, 1)
+    assert _bytes(board, 0o3000, 5) == b"00123"
+    assert cpu.state.R[Reg.PC] == 0o106
+
+
+def test_cis_reserved_opcode_traps():
+    cpu, board = make_machine("11/94", program=[0o076047], pc=0o100)  # reserved slot
+    board.ram.write_word(0o000010, 0o004000)
+    board.ram.write_word(0o000012, 0)
+    cpu.step()
+    assert cpu.state.R[Reg.PC] == 0o004000
 
 
 # --- decimal format coverage (zoned/overpunch/separate/packed, inline) ---

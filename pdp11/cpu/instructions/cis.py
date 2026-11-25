@@ -11,8 +11,12 @@ the 0o076xxx group (register operands) and its inline-operand variants
     0o044 CMPC / 0o045 MATC                 compare strings / match count
     0o060-0o067 L3DR   load 3 descriptors (R0-R5)
     0o050-0o057, 0o070-0o077 (+inline 0o150-0o177)   packed-decimal ops —
-    arithmetic implemented (ADDN/SUBN/CMPN/ADDP/SUBP/CMPP/MULP/DIVP/ASHN/
-    ASHP); CVT*/CRC stay loud NotImplementedError (§19.10/§22.4)
+    all implemented per SIMH pdp11_cis.c: ADDN/SUBN/CMPN/ADDP/SUBP/CMPP/
+    MULP/DIVP/ASHN/ASHP plus the conversions CVTNL/CVTPN/CVTNP/CVTPL/CVTLN/
+    CVTLP. N-group (0o05x) reads/writes numeric strings, P-group (0o07x)
+    packed; bit 5 (0o020) is SIMH's PACKED flag. (There is no CIS "CRC"
+    opcode: DEC STD 168 App. A / SIMH / binutils enumerate the whole 0o076xxx
+    space and leave the unused slots reserved — they trap 000010 here.)
 
 String descriptor: word 0 = length in bytes, word 1 = starting byte address.
 Register forms use R0:R1 = source descriptor, R2:R3 = dest descriptor,
@@ -51,6 +55,7 @@ _ADDN, _SUBN, _CMPN, _CVTNL, _CVTPN, _CVTNP, _ASHN, _CVTLN = range(0o050, 0o060)
 _ADDP, _SUBP, _CMPP, _CVTPL, _MULP, _DIVP, _ASHP, _CVTLP = range(0o070, 0o100)
 _ARITH_OPS = frozenset({_ADDN, _SUBN, _CMPN, _ADDP, _SUBP, _CMPP,
                         _MULP, _DIVP, _ASHN, _ASHP})
+_CVT_OPS = frozenset({_CVTNL, _CVTPN, _CVTNP, _CVTLN, _CVTPL, _CVTLP})
 _DECIMAL_OPS = frozenset(range(0o050, 0o060)) | frozenset(range(0o070, 0o100))
 
 # decimal string types (descriptor word 0, <14:12>) — SIMH pdp11_cis.c
@@ -216,16 +221,15 @@ def _dsc_operands(cpu: CPU, op: int, inline: bool) -> tuple[tuple[int, int], ...
 
 def _decimal(cpu: CPU, op: int, inline: bool) -> None:
     """CIS packed/numeric decimal ops (binutils opcode map; SIMH pdp11_cis.c
-    semantics via (sign, value) big-int conversion). Arithmetic ops are
-    implemented; CVT*/CRC stay loud stubs (§19.10/§22.4)."""
+    semantics via (sign, value) big-int conversion). Arithmetic ops and the
+    CVT* conversions are implemented."""
     st = cpu.state
     bus = cpu.bus
     assert bus is not None
     psw = st.psw
-    if op not in _ARITH_OPS:
-        raise NotImplementedError(
-            f"§5.4 CIS op 0o{0o076000 | (op | (0o100 if inline else 0)):06o} "
-            "(CVT*/CRC) — deferred, flagged §22.4")
+    if op in _CVT_OPS:
+        _cvt(cpu, op, inline)
+        return
     descs = _dsc_operands(cpu, op, inline)
     if op in (_ASHN, _ASHP):
         s_dsc, s_addr = descs[0]
@@ -290,6 +294,129 @@ def _decimal(cpu: CPU, op: int, inline: bool) -> None:
     dsign = 1 if result < 0 else 0
     _write_dstr(bus, d_dsc, d_addr, dsign, abs(result))
     _set_nz(psw, result & WORD_MASK)
+
+
+def _cvt_read(bus: Any, dsc: int, addr: int, packed: bool) -> tuple[int, int]:
+    """Read a decimal string for a CVT op, forcing the format like SIMH
+    ReadDstr's PACKED/NUMERIC flag: packed=True reads the source as packed
+    regardless of its declared type; packed=False reads per declared type,
+    except packed types, which SIMH treats as unsigned zoned."""
+    typ = (dsc >> 12) & 7
+    if packed:
+        forced = (XP << 12) | (dsc & 0o37)     # sign nibble D (SIMH also takes B; \u00a722.4)
+    elif typ in (XP, UP):
+        forced = (UZ << 12) | (dsc & 0o37)
+    else:
+        forced = dsc
+    return _read_dstr(bus, forced, addr)
+
+
+def _cvt_write(bus: Any, dsc: int, addr: int, sign: int, value: int,
+               packed: bool) -> None:
+    """Write a decimal string for a CVT op, forcing the format like SIMH
+    WriteDstr's flag: packed writes packed (UP keeps the 0xF sign nibble,
+    anything else gets C/D); numeric writes per declared type, except packed
+    types, which are written as unsigned zoned (SIMH quirk corner, \u00a722.4)."""
+    typ = (dsc >> 12) & 7
+    if packed:
+        forced = ((UP if typ == UP else XP) << 12) | (dsc & 0o37)
+    elif typ in (XP, UP):
+        forced = (UZ << 12) | (dsc & 0o37)
+    else:
+        forced = dsc
+    _write_dstr(bus, forced, addr, sign, value)
+
+
+def _cvt_cc(psw: PSW, dsc: int, sign: int, mag: int) -> None:
+    """Condition codes for CVTPN/CVTNP/CVTLN/CVTLP, per SIMH WriteDstr:
+    V set when digits beyond the destination length are nonzero, Z when all
+    stored digits are zero, N = stored sign & ~Z (unsigned types never set
+    N), C = 0."""
+    n = dsc & 0o37
+    stored = mag % (10 ** n) if n else 0
+    typ = (dsc >> 12) & 7
+    psw.set(PSW.V, mag >= 10 ** n)
+    psw.set(PSW.Z, stored == 0)
+    psw.set(PSW.N, bool(sign) and stored != 0 and typ not in (UZ, UP))
+    psw.set(PSW.C, False)
+
+
+def _cvt(cpu: CPU, op: int, inline: bool) -> None:
+    """CIS conversions (SIMH pdp11_cis.c cases 053/054/055/057/073/077 and
+    inline 0153/0154/0155/0157/0173/0177). N-group ops are numeric, P-group
+    (op & 0o020) packed.
+
+    CVTNL/CVTPL: source decimal string (R0:R1, or inline descriptor) ->
+    32-bit long: R2:R3 = result (register form; R0=R1=0), or stored as a
+    longword at the inline destination address (low word first). N/Z from
+    the result, V = signed-32 overflow, C = source negative and result != 0.
+
+    CVTPN/CVTNP: source string -> destination string (R0:R1 -> R2:R3, or two
+    inline descriptors), packed -> numeric / numeric -> packed. R0=R1=0 in
+    the register form. CCs from the stored string via _cvt_cc.
+
+    CVTLN/CVTLP: 32-bit long (R2:R3 register form, high word in R2; or the
+    two words of an inline descriptor, low word at the lower address) ->
+    destination decimal string (R0:R1 / inline). R2=R3=0 in the register
+    form. CCs from the stored string via _cvt_cc.
+    """
+    st = cpu.state
+    bus = cpu.bus
+    assert bus is not None
+    psw = st.psw
+    packed = bool(op & 0o020)
+    if op in (_CVTNL, _CVTPL):                          # decimal string -> long
+        if inline:
+            src = _descriptor(cpu, _inline_word(cpu))
+            dst_addr = _inline_word(cpu)                # IN_ARG: dest address
+        else:
+            src = (st.R[0], st.R[1])
+            dst_addr = -1
+        sign, mag = _cvt_read(bus, src[0], src[1], packed)
+        v = -mag if sign else mag
+        r = v & 0xFFFFFFFF
+        psw.set(PSW.N, bool(r & 0x80000000))
+        psw.set(PSW.Z, r == 0)
+        psw.set(PSW.V, v > 0x7FFFFFFF or v < -0x80000000)
+        psw.set(PSW.C, bool(sign) and r != 0)
+        if inline:
+            bus.write_word(dst_addr & WORD_MASK, r & WORD_MASK)
+            bus.write_word((dst_addr + 2) & WORD_MASK, (r >> 16) & WORD_MASK)
+        else:
+            st.R[0] = st.R[1] = 0
+            st.R[2] = (r >> 16) & WORD_MASK
+            st.R[3] = r & WORD_MASK
+        return
+    if op in (_CVTPN, _CVTNP):                          # string -> string
+        if inline:
+            src = _descriptor(cpu, _inline_word(cpu))
+            dst = _descriptor(cpu, _inline_word(cpu))
+        else:
+            src = (st.R[0], st.R[1])
+            dst = (st.R[2], st.R[3])
+        if op == _CVTPN:                                # packed -> numeric
+            sign, mag = _cvt_read(bus, src[0], src[1], True)
+            _cvt_write(bus, dst[0], dst[1], sign, mag, False)
+        else:                                           # numeric -> packed
+            sign, mag = _cvt_read(bus, src[0], src[1], False)
+            _cvt_write(bus, dst[0], dst[1], sign, mag, True)
+        _cvt_cc(psw, dst[0], sign, mag)
+        if not inline:
+            st.R[0] = st.R[1] = 0
+        return
+    # CVTLN / CVTLP: long -> decimal string
+    if inline:
+        dst = _descriptor(cpu, _inline_word(cpu))
+        a2 = _inline_word(cpu)
+        v32 = bus.read_word(a2) | (bus.read_word((a2 + 2) & WORD_MASK) << 16)
+    else:
+        dst = (st.R[0], st.R[1])
+        v32 = (st.R[2] << 16) | st.R[3]
+        st.R[2] = st.R[3] = 0
+    sign = 1 if v32 & 0x80000000 else 0
+    mag = (~v32 + 1) & 0xFFFFFFFF if sign else v32
+    _cvt_write(bus, dst[0], dst[1], sign, mag, packed)
+    _cvt_cc(psw, dst[0], sign, mag)
 
 
 def _set_nz(psw: PSW, value: int) -> None:
@@ -419,8 +546,8 @@ def _cmpc(cpu: CPU, ln1: int, ad1: int, ln2: int, ad2: int,
 @opcode(_CIS_GROUP, mask=0o177400, caps="CIS", fmt="none")   # whole 0o076xxx CIS group
 def instr_CIS(cpu: CPU) -> None:
     """0o076xxx: CIS group (J-11 on-chip; KH11 on 11/70; KEF11 on 11/03) —
-    op = IR<6:0>, bit 6 (0o100) = inline operands. String ops implemented;
-    packed-decimal ops raise NotImplementedError (§22.4)."""
+    op = IR<6:0>, bit 6 (0o100) = inline operands. String ops and the
+    packed-decimal ops (arith + CVT*) are implemented."""
     st = cpu.state
     bus = cpu.bus
     assert bus is not None
