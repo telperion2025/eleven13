@@ -311,7 +311,12 @@ Version 1 is complete when all eleven criteria pass. Status after M8:
     opcodes are pinned by binutils (FADD/FSUB/FMUL/FDIV at 0o075000+8k+ac)
     but the accumulator semantics are not verified from a primary source
     here, so per §19.10 it stays loud rather than guessed.
-40. TQK11 stays a loud stub (§19.10): the IP/SA register semantics at
-    174500 are verified from SIMH pdp11_uqssp.h (IP read = poll ring,
-    IP write = re-init), but the MSCP command-ring/packet layer is not
-    implemented and is not faked.
+40. TQK11 (TK50/TU81 via Q-Bus 174500, 11/94) is implemented: IP/SA semantics,
+    the 4-step UQSSP init handshake, and the MSCP command/response-ring
+    layer, cross-checked against SIMH pdp11_tq.c + pdp11_uqssp.h +
+    pdp11_mscp.h (IP read = poll ring, IP write = re-init; ring descriptors
+    OWN/F/22-bit-addr; 4-byte UQ header before each packet; TMSCP CID).
+    Tape opcodes RD/WR/WTM/ERG/ERS/POS run against SIMH .tap containers
+    byte-compatibly (TapImage, §16); control set SCC/GUS/ONL/AVL/ABO/GCS.
+    Interrupt vector is programmed in init step 1 (SA_S1H_VEC<<2), BR5.
+    Pinned by pdp11/tests/test_tqk11.py (16 tests).

@@ -360,13 +360,14 @@ def test_1170_mmu_on_program_path():
 
 def test_assemble_1194_devices():
     """11/94: Q-Bus arbiter + MMU (J-11 flavor) + Q22-CD map; DL11/KW11L/RK11
-    attach (tqk11 is not implemented until its milestone and is skipped)."""
+    and the TQK11 MSCP tape controller (no --tape given, so it runs offline)
+    attach."""
     args = build_arg_parser().parse_args(["--machine", "11/94"])
     board = assemble(args, ConsoleTerminal(FakeBackend()))
     assert board.qbus is not None and board.unibus is None
     assert board.qbus.addr_mask == 0o17777777              # 22-bit
     assert board.mmu is not None and board.map is not None
-    assert [d.name for d in board.devices] == ["DL11", "KW11L", "RK11"]
+    assert [d.name for d in board.devices] == ["DL11", "KW11L", "RK11", "TQK11"]
 
 
 def test_1194_builtin_bootstrap_and_caret_odt():

@@ -27,7 +27,7 @@ python -m pdp11.main --machine 11/20 ...     # identical, module form
 | `--memory OCT_WORDS` | RAM size in **octal** words, overriding the profile ceiling. | M1 (parsed) |
 | `--disk IMAGE` | Attach a disk image; format auto-detected from file size per spec §16 (repeatable). Dispatched by container: RK05-sized → RK11 at 177400, RX01-sized → RX11 at 177170, RP06/RP07-sized (512-byte sectors) → RH70 at 176700 on the 11/70 (Massbus). | M3/M4/M5 |
 | `--rl IMAGE` | Attach an RL01/RL02 image to the RL11 at 174400 (repeatable). Raw 256-byte sectors; any 256-aligned file up to RL02 capacity autosizes and zero-pads (SIMH AUTOSIZE, §16). RL images take this flag, not `--disk`, so partial RK05 files stay unambiguous. | post-M8 |
-| `--tape TAP` | Attach a SIMH `.tap` magtape (§16) to the TM11 at 172520 (or TQK11 when implemented). Repeatable; first tape goes to drive 0. | post-M8 |
+| `--tape TAP` | Attach a SIMH `.tap` magtape (§16) to the TM11 at 172520 (Unibus) or the TQK11 MSCP controller at 174500 (Q-Bus, 11/94 default). Repeatable; first tape goes to drive 0. | post-M8 |
 | `--papertape PT` | Attach a PC11 paper tape (SIMH `.pt` = raw byte stream, read-only in v1, §16) to the PC11 at 177550. | post-M8 |
 | `--console {vt100,vt52,la36,odt}` | Terminal frontend (default `vt100`): a real VT100/VT52 escape-sequence state machine, or the LA36 hardcopy; `odt` is the plain text console. | M7 |
 | `--bootrom FILE` | Load an M9312 512-word boot PROM image (spec §13). Without it, a simplified built-in bootstrap is used — documented as **non-authentic**. | M2/M3 |
