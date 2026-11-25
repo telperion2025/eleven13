@@ -145,7 +145,7 @@ gates, custom TRACE (level 5) the fetch/decode path (spec §18.3).
 | `pdp11/board.py` | SystemBoard / MemoryInterface | done (flat 16-bit) |
 | `pdp11/cpu/core.py` | fetch/decode/execute, dispatch, cost table | done (M1 scope) |
 | `pdp11/cpu/registers.py` | R0–R7, PSW | done (§17.6) |
-| `pdp11/cpu/instructions/` | BASE handlers + gated EIS/FPU/CIS | BASE done; EIS (M4), **CIS string ops (M6)**, FPU (M5) done; CIS decimal stubs |
+| `pdp11/cpu/instructions/` | BASE handlers + gated EIS/FPU/CIS | BASE done; EIS (M4), **CIS string + decimal + CVT* (M6/post-M8)**, FPU (M5) done |
 | `pdp11/cpu/traps.py`, `interrupts.py` | vectors, IPL logic | done (flat mode) |
 | `pdp11/cpu/mmu.py`, `cpu/fp11.py` | MMU, FP11 engine | **done (M5)** — see §7 |
 | `pdp11/memory/` | RAM, ROM, I/O page, map registers | RAM/ROM/IOPage done; **Unibus map (M5) + Q22-CD map (M6)** |

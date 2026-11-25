@@ -123,9 +123,9 @@ inline words fetched from I space). String descriptor = (length word, address
 word). Register forms use R0:R1/R2:R3 as descriptors, R4 = fill/match char,
 R5 = table address. M6 implements the string ops per SIMH pdp11_cis.c;
 post-M8 implements the packed-decimal arithmetic ops (ADDN/SUBN/CMPN/
-ADDP/SUBP/CMPP/MULP/DIVP/ASHN/ASHP, 0o050-0o057 and 0o070-0o077, inline
-0o150-0o177) over all 8 decimal data types; CVT*/CRC still raise
-NotImplementedError (§19.10/§22.4).
+ADDP/SUBP/CMPP/MULP/DIVP/ASHN/ASHP) and the conversions (CVTNL/CVTPN/CVTNP/
+CVTPL/CVTLN/CVTLP) over all 8 decimal data types, register and inline
+(0o150-0o177) forms, per SIMH pdp11_cis.c.
 
 | Octal | Mnemonic | Operation |
 |---|---|---|
