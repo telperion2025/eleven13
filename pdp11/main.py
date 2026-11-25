@@ -101,8 +101,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     fundamentally across machines; guessing a default silently would
     betray the profile-driven design)."""
     p = argparse.ArgumentParser(prog="eleven13", description="DEC PDP-11 emulator")
-    p.add_argument("--machine", required=True, choices=sorted(PROFILES.keys()),
-                   help="which machine to emulate (no default: see spec §4.1)")
+    p.add_argument("--machine", choices=sorted(PROFILES.keys()),
+                   help="which machine to emulate (no default: spec §4.1) — required "
+                        "unless --gui, where it is picked in the setup form")
     p.add_argument("--memory", type=lambda s: int(s, 8), metavar="OCT_WORDS",
                    help="RAM size in octal words, overriding the profile max")
     p.add_argument("--disk", action="append", metavar="IMAGE",
@@ -354,8 +355,12 @@ def _oct_cycles(value: str | None) -> int | None:
 
 def main(argv: list[str] | None = None, backend: RenderBackend | None = None) -> int:
     """Assemble the chosen machine and run until HALT/error."""
-    args = build_arg_parser().parse_args(argv)
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
+    if not args.gui and args.machine is None:
+        parser.error("--machine is required (no default, spec §4.1) — or use --gui "
+                     "and pick the machine in the setup form")
     if args.gui:
         from pdp11.gui import run_gui  # lazy: optional host surface (§8)
         return run_gui(args)
