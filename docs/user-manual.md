@@ -30,6 +30,7 @@ python -m pdp11.main --machine 11/20 ...     # identical, module form
 | `--tape TAP` | Attach a SIMH `.tap` magtape (§16) to the TM11 at 172520 (Unibus) or the TQK11 MSCP controller at 174500 (Q-Bus, 11/94 default). Repeatable; first tape goes to drive 0. | post-M8 |
 | `--papertape PT` | Attach a PC11 paper tape (SIMH `.pt` = raw byte stream, read-only in v1, §16) to the PC11 at 177550. | post-M8 |
 | `--console {vt100,vt52,la36,odt}` | Terminal frontend (default `vt100`): a real VT100/VT52 escape-sequence state machine, or the LA36 hardcopy; `odt` is the plain text console. | M7 |
+| `--gui` | Launch the optional tkinter GUI (console pane + per-machine instructions panel); needs stdlib tkinter. Uses the plain console inside the window — see §7. | post-M8 |
 | `--vt11` | Attach a VT11-class vector display at 176600 (DPC/MPR/XPR/YPR + display-list engine) rendering into a pixel framebuffer for the optional pixel backend (§8). | post-M8 |
 | `--bootrom FILE` | Load an M9312 512-word boot PROM image (spec §13). Without it, a simplified built-in bootstrap is used — documented as **non-authentic**. | M2/M3 |
 | `--config FILE.json` | Per-run overrides (memory size, devices, volumes) layered over the profile; see `pdp11/config/config.json` for the schema example. | M2+ |
@@ -142,7 +143,35 @@ choose between the two flags. RSTS/RSX-style orderly shutdown and auto-restart
 code paths become testable without real power events (spec §5.5, §11.9) —
 `test_console.py::test_powerfail_and_restore_trap_vector_024` shows the shape.
 
-## 7. Exit status
+## 7. Graphical front end (`--gui`)
+
+```sh
+eleven13 --machine 11/03 --gui                  # needs stdlib tkinter (libtk + display)
+```
+
+`--gui` opens a tkinter window (the optional tkinter host surface sanctioned by
+spec §8) instead of the stdio console:
+
+- **Left pane — console:** the plain-text DL11 console / ODT / debugger shell.
+  Type in the input line at the bottom and press Enter to send a line (Ctrl-C
+  in the line sends the BREAK byte). A status bar shows RUN vs `HALT — @`
+  plus the bus-cycle counter.
+- **Right pane — instructions:** a per-machine cheat sheet (built by
+  `pdp11.gui.instructions_for`): power-on PC and boot behavior for your
+  machine, the attached `--disk`/`--rl`/`--tape`/`--papertape` media, the ODT
+  command table (`<addr>/` examine, `<addr>\` deposit, `G` go, `Q` quit),
+  the debugger table when `--debug` is on, and the session flags in effect.
+- **Buttons:** `BREAK (Ctrl-C)` sends the front-panel BREAK key (halts a
+  running machine into ODT, §13); `Quit` sends BREAK then closes cleanly
+  (a `--save` snapshot still lands on exit).
+
+The emulator runs on a worker thread and talks to the widgets only through
+queues, so the deterministic core is untouched; the module imports tkinter
+lazily and the headless test suite (`test_gui.py`) needs no display. On a
+machine without libtk, `--gui` exits with an actionable message — use the
+plain stdio console instead.
+
+## 8. Exit status
 
 `0` on clean HALT-to-ODT exit; non-zero on user-facing misuse (bad arguments,
 unreadable image) with an actionable message. Hardware-signaling conditions
