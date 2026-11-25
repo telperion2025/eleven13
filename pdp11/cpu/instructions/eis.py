@@ -26,16 +26,33 @@ pdp11_cpu.c (§22.4; corner behavior is flagged in docs/acceptance-checklist.md)
 
 M1 implemented only SXT; M4 (11/03 KEF11) implements MUL/DIV/ASH/ASHC/XOR/
 SOB — on the 11/20 (no EIS cap) they are consumed as no-ops by the
-capability gate (§5.4, KD11B_NOOP_HANDLERS). FIS stays NotImplementedError
-(KEF11 floating set, follow-up). The capability gate always runs before
-these handlers (§5.4).
+capability gate (§5.4, KD11B_NOOP_HANDLERS). FIS (0o075xxx, KEF11 floating
+set) is implemented below per SIMH pdp11_fp.c fis11(). The capability gate
+always runs before these handlers (§5.4).
+
+FIS decode (SIMH fis11, cross-checked against binutils pdp11-opc.c:
+FADD/FSUB/FMUL/FDIV = 0o075000/0o075010/0o075020/0o075030 | reg):
+    IR<2:0> = reg — a STACK POINTER, not an accumulator number: the source
+    F-float lives at R[reg]..R[reg]+2 and the accumulator F-float at
+    R[reg]+4..R[reg]+6; the result is stored back at R[reg]+4 and R[reg]
+    pops by 4. reg 7 selects instruction space (SIMH isenable). op =
+    IR<4:3>: 0 FADD, 1 FSUB, 2 FMUL, 3 FDIV. IR & 0o000740 (bits 8-5) != 0
+    is reserved: the 11/03 reads R[reg] first (bus side effects), then
+    traps 000010. Arithmetic is 32-bit F via the cpu/fp11.py engine; -0 operands
+    are cleaned to +0; FDIV by zero sets N=V=C=1 and traps 000244 with FEC
+    unchanged; overflow/underflow set V (N too on underflow), set FEC/FEA,
+    and trap 000244 — fis11 forces FPS = IU|IV, i.e. those traps are always
+    enabled. On success N/Z come from the result word, V=C=0. Only the
+    11/03 has the KEF11 (profile.has_fis); on 11/70/94 and the 11/20 0o075xxx
+    traps reserved (§5.4/§5.8).
 
 References: PDP-11 Processor Handbook (EIS section); LSI-11/KEF11 docs;
-SIMH pdp11_cpu.c case 007 (§22.4 cross-check source).
+SIMH pdp11_cpu.c case 007 + pdp11_fp.c fis11() (§22.4 cross-check source).
 """
 
 from __future__ import annotations
 
+from pdp11.cpu import traps
 from pdp11.cpu.core import (
     CPU,
     SIGN_BIT,
@@ -44,6 +61,15 @@ from pdp11.cpu.core import (
     read_op,
     resolve_operand,
     write_op,
+)
+from pdp11.cpu.fp11 import (
+    FEC_OVFLO,
+    FPS_ER,
+    FPS_IU,
+    FPS_IV,
+    FPS_T,
+    P_F,
+    VECTOR_FPE,
 )
 from pdp11.cpu.registers import PSW, Reg
 
@@ -220,10 +246,87 @@ def instr_XOR(cpu: CPU) -> None:
     psw.set(PSW.V, False)
 
 
-@opcode(0o075000, mask=0o177000, caps="EIS", fmt="src")   # FIS 0o075xxx (LSI-11)
+def _fis_exception(cpu: CPU, code: int) -> None:
+    """FIS overflow/underflow: record FEC/FEA/ER and trap through 000244.
+    SIMH fis11 forces FPS = IU|IV (ID clear), so these traps always fire
+    (fpnotrap in pdp11_fp.c); the PSW V/N bits are set by the caller."""
+    fp = cpu.state.fp
+    fp.fec = code
+    fp.fea = cpu.last_instr_addr & WORD_MASK
+    fp.fps |= FPS_ER
+    traps.trap(cpu, VECTOR_FPE, saved_pc=cpu.last_instr_addr)
+
+
+@opcode(0o075000, mask=0o177000, caps="EIS", fmt="src")   # FIS 0o075xxx (LSI-11 KEF11)
 def instr_FIS(cpu: CPU) -> None:
-    """FIS floating-integer instructions (LSI-11 KEF11): FADD etc."""
-    raise NotImplementedError("§5.3 FIS — KEF11 floating set, M4 follow-up (§22.4)")
+    """FIS (KEF11) FADD/FSUB/FMUL/FDIV — SIMH pdp11_fp.c fis11: IR<2:0> is a
+    register holding a stack pointer; fsrc = F-float at R[reg], fac =
+    F-float at R[reg]+4; fac <- fac op fsrc stored at R[reg]+4, R[reg] += 4.
+    op = IR<4:3>: 0 FADD, 1 FSUB, 2 FMUL, 3 FDIV. IR & 0o000740 (bits 8-5)
+    != 0 is reserved (000010). R7 reads instruction space. Traps 000244 on
+    FDIV by zero (N=V=C=1) and on overflow/underflow (V, plus N on underflow)."""
+    st = cpu.state
+    bus = cpu.bus
+    assert bus is not None
+    psw = st.psw
+    ir = cpu.last_op_word
+    if not cpu.profile.has_fis:
+        traps.reserved_instruction(cpu)     # no KEF11 (11/70/94): 0o075xxx reserved
+        return
+    reg = ir & 0o07
+    fetch = reg == Reg.PC                   # R7: instruction space (SIMH isenable)
+    if ir & 0o000740:                       # IR<8:6> set: not a defined FIS op
+        bus.read_word(st.R[reg] & WORD_MASK, fetch=fetch)  # 11/03 read side effect
+        traps.reserved_instruction(cpu)
+        return
+    fp = st.fp
+    fp.fec = 0
+    fp.fps = FPS_IU | FPS_IV                # SIMH fis11: trap ovf/unf
+    base = st.R[reg] & WORD_MASK
+    fsrc_h = bus.read_word(base, fetch=fetch) \
+        | (bus.read_word((base + 2) & WORD_MASK, fetch=fetch) << 16)
+    fac_h = bus.read_word((base + 4) & WORD_MASK, fetch=fetch) \
+        | (bus.read_word((base + 6) & WORD_MASK, fetch=fetch) << 16)
+    if fsrc_h & 0x80000000 and (fsrc_h >> 23) & 0o377 == 0:
+        fsrc_h = 0                          # clean -0 (SIMH fis11)
+    if fac_h & 0x80000000 and (fac_h >> 23) & 0o377 == 0:
+        fac_h = 0
+    psw.set(PSW.N, False)
+    psw.set(PSW.Z, False)
+    psw.set(PSW.V, False)
+    psw.set(PSW.C, False)
+    op = (ir >> 3) & 0o3
+    a = fp._value(fac_h << 32, P_F)
+    b = fp._value(fsrc_h << 32, P_F)
+    if op == 0o3 and b == 0:                # FDIV by zero
+        psw.set(PSW.V, True)
+        psw.set(PSW.N, True)
+        psw.set(PSW.C, True)
+        traps.trap(cpu, VECTOR_FPE, saved_pc=cpu.last_instr_addr)  # FEC stays 0
+        return
+    if op == 0o0:
+        result = a + b
+    elif op == 0o1:
+        result = a - b
+    elif op == 0o2:
+        result = a * b
+    else:
+        result = a / b
+    sign, exp, m, status = fp._norm(result, P_F, bool(fp.fps & FPS_T))
+    if status == 0:
+        h = (fp._pack(sign, exp, m, P_F) >> 32) & 0xFFFFFFFF
+        bus.write_word((base + 4) & WORD_MASK, h & WORD_MASK, fetch=fetch)
+        bus.write_word((base + 6) & WORD_MASK, (h >> 16) & WORD_MASK, fetch=fetch)
+        st.R[reg] = (base + 4) & WORD_MASK  # pop stack
+        psw.set(PSW.N, bool(h & 0x80000000))
+        psw.set(PSW.Z, h == 0)
+    elif status == FEC_OVFLO:
+        psw.set(PSW.V, True)
+        _fis_exception(cpu, status)
+    else:                                   # FEC_UNFLO
+        psw.set(PSW.V, True)
+        psw.set(PSW.N, True)
+        _fis_exception(cpu, status)
 
 
 @opcode(0o077000, mask=0o177000, caps="EIS", fmt="dst")   # SOB 0o077rdd

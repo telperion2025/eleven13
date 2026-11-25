@@ -306,11 +306,8 @@ Version 1 is complete when all eleven criteria pass. Status after M8:
     opcode map cross-checked against binutils pdp11-opc.c and SIMH
     pdp11_cis.c opntab). All 8 decimal data types (zoned/overpunch/separate/
     packed) read/write via (sign, big-int) conversion; overpunch tables from
-    SIMH overbin/binover. CVT*/CRC remain loud NotImplementedError (§19.10).
-    FIS (0o075xxx, KEF11) likewise remains a loud stub — the arithmetic
-    opcodes are pinned by binutils (FADD/FSUB/FMUL/FDIV at 0o075000+8k+ac)
-    but the accumulator semantics are not verified from a primary source
-    here, so per §19.10 it stays loud rather than guessed.
+    SIMH overbin/binover. CVT*/CRC remain the last loud NotImplementedError
+    stub (§19.10) — see item 42's note on FIS, now implemented.
 40. TQK11 (TK50/TU81 via Q-Bus 174500, 11/94) is implemented: IP/SA semantics,
     the 4-step UQSSP init handshake, and the MSCP command/response-ring
     layer, cross-checked against SIMH pdp11_tq.c + pdp11_uqssp.h +
@@ -330,3 +327,15 @@ Version 1 is complete when all eleven criteria pass. Status after M8:
     against SIMH pdp11_vt.c + display/vt11.c and DEC EK-VT11-TM-001
     (bitsavers.org/pdf/dec/graphics/VT11). Attached via `--vt11`.
     Pinned by pdp11/tests/test_vt11.py (15 tests).
+42. FIS (0o075xxx, KEF11) is implemented in `cpu/instructions/eis.py`
+    (instr_FIS), gated on the new profile.has_fis flag (11/03 only; on
+    11/70/94 and the 11/20 the opcode traps reserved, as SIMH does without
+    OPT_FIS). Semantics pinned against SIMH pdp11_fp.c fis11() + binutils
+    pdp11-opc.c (FADD/FSUB/FMUL/FDIV = 0o075000/0o075010/0o075020/0o075030|r,
+    mask 0xfff8): IR<2:0> is a stack pointer — fsrc F-float at R[reg],
+    accumulator at R[reg]+4, result stored at R[reg]+4, R[reg] pops by 4;
+    R7 reads I-space; IR & 0o000740 (bits 8-5) traps 000010 after a read of
+    R[reg]; arithmetic is 32-bit F via the cpu/fp11.py engine with -0
+    cleaned to +0; FDIV by zero sets N=V=C=1 and traps 000244 (FEC stays 0);
+    overflow/underflow set V (N too on underflow) + FEC/FEA and trap 000244
+    (fis11 forces FPS = IU|IV). Pinned by pdp11/tests/test_fis.py (16 tests).
