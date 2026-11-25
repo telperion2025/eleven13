@@ -30,8 +30,10 @@ BusInit, which the CPU core routes to vector 000004; MMU page faults raise
 MMUAbort (a BusInit subclass, cpu/mmu.py) routed to vector 000250 when MMR0
 TENB is set. M4's LSI11_TOLERANT odd-address word access splits into a byte
 pair (nonexistent-memory traps cleanly; backplane-dependent variants are
-flagged §22.1). DCJ11_STRICT is M6 work and raises NotImplementedError per
-§19.10 — never a guessed behavior.
+flagged §22.1). DCJ11_STRICT (M6, 11/94 J-11) is implemented: strict
+timeout raising BusInit on nonexistent memory AND on odd-address word access
+(no byte-split quirk); micro-trap format differences vs the 11/70 are
+flagged §22.4.
 """
 
 from __future__ import annotations
