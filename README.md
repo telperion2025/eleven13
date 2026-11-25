@@ -27,6 +27,7 @@ Requires Python ≥ 3.11, < 3.13 and [uv](https://docs.astral.sh/uv/). The emula
 uv sync --extra dev        # create the venv, install pytest/ruff/mypy
 uv run eleven13 --machine 11/20          # CLI entry point
 uv run python -m pdp11.main --machine 11/20   # same thing, module form
+uv run eleven13 --machine 11/03 --gui         # optional tkinter GUI: console pane + on-screen instructions
 ```
 
 `--machine {11/03,11/20,11/70,11/94}` is **required** — there is no default, because behavior differs fundamentally per machine (spec §4.1). See [docs/user-manual.md](docs/user-manual.md) for the full CLI reference and [docs/operator-manual.md](docs/operator-manual.md) for per-machine power-on/boot behavior.
@@ -36,7 +37,7 @@ uv run python -m pdp11.main --machine 11/20   # same thing, module form
 ## Quality gates (spec §18.2)
 
 ```sh
-make test     # uv run pytest            — 352 tests green
+make test     # uv run pytest            — 362 tests green
 make lint     # uv run ruff check        — zero findings
 make type     # uv run mypy --strict ... — clean on cpu/ bus/ memory/ config/ + core modules
 make check    # all of the above

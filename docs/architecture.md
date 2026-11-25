@@ -154,7 +154,8 @@ gates, custom TRACE (level 5) the fetch/decode path (spec §18.3).
 | `pdp11/control/front_panel.py`, `rom_loader.py` | ODT + boot PROMs | done (M2); **debugger done (M7)**; snapshot stub (M8) |
 | `pdp11/control/debugger.py` | extended debugger + §14 counters + §18.3 dump | **done (M7)** |
 | `pdp11/graphics/` | terminal interfaces | ConsoleTerminal + StdioBackend (M2); **VT100/VT52 + LA36 done (M7)**; curses/pixel backends post-v1 |
-| `pdp11/main.py` | CLI + assembly + run loop | done (M2) |
+| `pdp11/main.py` | CLI + assembly + run loop | done (M2); **`--gui` hook** |
+| `pdp11/gui.py` | optional tkinter GUI (console pane + instructions panel, §8 tkinter surface) | **done** — headless-tested, lazy tkinter import |
 | `pdp11/devices/` | DL11…KW11-P | DL11, KW11-L, RK11/RK05 (M2/M3), DZ11, RX11 (M4), **RH70+RP06/RP07 (M5)** done; rest stubbed to their milestones |
 | `pdp11/graphics/` | terminals + render backends | StdioBackend (M2); **vt100.py/la36.py frontends done (M7)**; curses/pixel post-v1 |
 | `pdp11/control/` | ODT, debugger, snapshots, ROM loader | ODT+ROM loader (M2), debugger (M7), **snapshots (M8)** done |

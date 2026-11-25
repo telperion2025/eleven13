@@ -14,7 +14,7 @@ lint: sync       ## ruff check — zero findings required (spec §18.2)
 
 type: sync       ## mypy --strict on the modules the spec gates (spec §18.2)
 	uv run mypy --strict pdp11/config pdp11/cpu pdp11/bus pdp11/memory \
-	    pdp11/system_clock.py pdp11/board.py pdp11/main.py
+	    pdp11/system_clock.py pdp11/board.py pdp11/main.py pdp11/gui.py
 
 check: test lint type   ## all quality gates (spec §18.2)
 

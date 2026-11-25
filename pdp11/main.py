@@ -117,6 +117,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="attach a PC11 paper tape (.pt raw byte stream, §16)")
     p.add_argument("--console", choices=["vt100", "vt52", "la36", "odt"],
                    default="vt100", help="terminal frontend (§8)")
+    p.add_argument("--gui", action="store_true",
+                   help="launch the optional tkinter GUI front end — console pane plus an "
+                        "on-screen instructions panel (§8 optional tkinter surface); uses "
+                        "the plain console inside the window. Needs stdlib tkinter (libtk)")
     p.add_argument("--vt11", action="store_true",
                    help="attach a VT11-class vector display at 176600 with a pixel "
                         "framebuffer for the optional pixel backend (§8)")
@@ -344,16 +348,20 @@ def run(board: SystemBoard, terminal: TerminalFrontend, throttle: bool = False,
         panel.run()                                    # G -> RUN (§13)
 
 
+def _oct_cycles(value: str | None) -> int | None:
+    return int(value, 8) if value is not None else None   # octal CLI (§10.1)
+
+
 def main(argv: list[str] | None = None, backend: RenderBackend | None = None) -> int:
     """Assemble the chosen machine and run until HALT/error."""
     args = build_arg_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
+    if args.gui:
+        from pdp11.gui import run_gui  # lazy: optional host surface (§8)
+        return run_gui(args)
     host = backend if backend is not None else StdioBackend()
     terminal = make_terminal(args.console, host)      # --console frontend (§8, M7)
     board = assemble(args, terminal)
-
-    def _oct_cycles(value: str | None) -> int | None:
-        return int(value, 8) if value is not None else None   # octal CLI (§10.1)
 
     try:
         return run(board, terminal, throttle=args.throttle, debug=args.debug,
