@@ -70,6 +70,7 @@ from pdp11.disk_images.container import (
     open_rl,
 )
 from pdp11.errors import EmulationError
+from pdp11.graphics.framebuffer import VT11, VT11_BASE
 from pdp11.graphics.la36 import LA36Frontend
 from pdp11.graphics.render_backend import RenderBackend, StdioBackend
 from pdp11.graphics.terminal import ConsoleTerminal, TerminalFrontend
@@ -116,6 +117,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="attach a PC11 paper tape (.pt raw byte stream, §16)")
     p.add_argument("--console", choices=["vt100", "vt52", "la36", "odt"],
                    default="vt100", help="terminal frontend (§8)")
+    p.add_argument("--vt11", action="store_true",
+                   help="attach a VT11-class vector display at 176600 with a pixel "
+                        "framebuffer for the optional pixel backend (§8)")
     p.add_argument("--bootrom", metavar="FILE",
                    help="M9312 boot PROM image — §13")
     p.add_argument("--config", metavar="FILE.json",
@@ -241,6 +245,8 @@ def assemble(args: argparse.Namespace, terminal: TerminalFrontend) -> SystemBoar
             board.attach_device(KW11P_BASE, KW11P(clock))
         else:
             _log.info("device %r not implemented until its milestone — skipping", name)
+    if args.vt11:
+        board.attach_device(VT11_BASE, VT11(clock, board.dma_host))
     # leftover --disk images attach by container format (§16): RK05 -> RK11,
     # RX01 -> RX11, RP06/RP07 -> RH70 — even on profiles whose defaults don't
     # list them (§11.2/§11.3)

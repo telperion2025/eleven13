@@ -30,6 +30,7 @@ python -m pdp11.main --machine 11/20 ...     # identical, module form
 | `--tape TAP` | Attach a SIMH `.tap` magtape (§16) to the TM11 at 172520 (Unibus) or the TQK11 MSCP controller at 174500 (Q-Bus, 11/94 default). Repeatable; first tape goes to drive 0. | post-M8 |
 | `--papertape PT` | Attach a PC11 paper tape (SIMH `.pt` = raw byte stream, read-only in v1, §16) to the PC11 at 177550. | post-M8 |
 | `--console {vt100,vt52,la36,odt}` | Terminal frontend (default `vt100`): a real VT100/VT52 escape-sequence state machine, or the LA36 hardcopy; `odt` is the plain text console. | M7 |
+| `--vt11` | Attach a VT11-class vector display at 176600 (DPC/MPR/XPR/YPR + display-list engine) rendering into a pixel framebuffer for the optional pixel backend (§8). | post-M8 |
 | `--bootrom FILE` | Load an M9312 512-word boot PROM image (spec §13). Without it, a simplified built-in bootstrap is used — documented as **non-authentic**. | M2/M3 |
 | `--config FILE.json` | Per-run overrides (memory size, devices, volumes) layered over the profile; see `pdp11/config/config.json` for the schema example. | M2+ |
 | `--throttle` | Slow execution to real-machine speed. Default is full speed (`--maxspeed` stance, spec §14). Throttling lives only in `main.py`, never in the machine core. | M2+ |

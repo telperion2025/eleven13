@@ -17,7 +17,7 @@ The full engineering specification lives in **[DESIGN.md](DESIGN.md)** (Part A �
 - **M7** — VT100/VT52 terminal frontends and the LA36 hardcopy wired via `--console`, extended debugger, and the §11.1 diagnostic harness (4/4 profiles PASS on the built-in smoke diagnostic);
 - **M8** — session snapshots with byte-identical restore, power-fail/restore (vector 000024), SIMH `.tap`/raw container round-trips, performance instrumentation (~225k instructions/s measured on the 11/20 spin loop, `pdp11/tests/test_determinism.py`), and the CI coverage gates.
 
-A handful of devices remain documented stubs raising `NotImplementedError` with their spec section per §19.10 — the VT11 framebuffer, FIS, and the CIS CVT*/CRC ops — never silently-wrong fakes. Real DEC distribution media (RT-11 RX01/RK05/RL01 disks, RSX-11D kits and `.TPC` tapes) are checked in under `images/` for use with `--disk`.
+A handful of devices remain documented stubs raising `NotImplementedError` with their spec section per §19.10 — FIS and the CIS CVT*/CRC ops — never silently-wrong fakes. Real DEC distribution media (RT-11 RX01/RK05/RL01 disks, RSX-11D kits and `.TPC` tapes) are checked in under `images/` for use with `--disk`.
 
 ## Install and run
 
@@ -36,7 +36,7 @@ uv run python -m pdp11.main --machine 11/20   # same thing, module form
 ## Quality gates (spec §18.2)
 
 ```sh
-make test     # uv run pytest            — 307 tests green
+make test     # uv run pytest            — 322 tests green
 make lint     # uv run ruff check        — zero findings
 make type     # uv run mypy --strict ... — clean on cpu/ bus/ memory/ config/ + core modules
 make check    # all of the above

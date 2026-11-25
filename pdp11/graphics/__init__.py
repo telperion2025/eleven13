@@ -11,5 +11,6 @@ a debug-log note, never passed through as multi-byte garbage.
 M7 implements the VT100/VT52 terminals (vt100.py), the LA36 hardcopy
 (la36.py), and the shared BackendTerminal input queue (terminal.py); the
 curses text-grid backend and the optional pixel backend land post-v1 (§8);
-framebuffer.py remains the VT11-class stub.
+framebuffer.py is the VT11-class vector display (DPC/MPR/XPR/YPR at 176600
+plus a pixel framebuffer for the pixel backend), attached with `--vt11`.
 """
