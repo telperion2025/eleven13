@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from pdp11.config.profiles import PROFILES
-from pdp11.gui import ODT_HELP, TkGuiBackend, gui_available, instructions_for
+from pdp11.gui import ODT_HELP, TkGuiBackend, gui_available, instructions_for, setup_to_argv
 from pdp11.main import build_arg_parser, main
 
 
@@ -22,6 +22,40 @@ def _args(*extra: str):
 def test_gui_flag_parses_and_defaults_off() -> None:
     assert _args().gui is False
     assert _args("--gui").gui is True
+
+
+def test_gui_alone_needs_no_machine_flag() -> None:
+    args = build_arg_parser().parse_args(["--gui"])
+    assert args.gui is True and args.machine is None
+    # but without --gui the machine is still mandatory (spec §4.1: no default)
+    with pytest.raises(SystemExit):
+        main([])
+
+
+def test_setup_to_argv_maps_every_form_field() -> None:
+    argv = setup_to_argv(
+        machine="11/03", memory="0o40000",
+        disks=["a.img", "b.img"], rls=["rl.img"], tapes=["t.tap"], paper_tapes=["p.pt"],
+        bootrom="rom.bin", throttle=True, debug=True, vt11=True,
+        save="s.json", restore="r.json",
+        powerfail=(True, "0o100000"), powerrestore=(False, ""))
+    args = build_arg_parser().parse_args(argv)
+    assert args.machine == "11/03" and args.gui is True
+    assert args.memory == 0o40000
+    assert args.disk == ["a.img", "b.img"] and args.rl == ["rl.img"]
+    assert args.tape == ["t.tap"] and args.papertape == ["p.pt"]
+    assert args.bootrom == "rom.bin" and args.throttle and args.debug and args.vt11
+    assert args.save == "s.json" and args.restore == "r.json"
+    assert args.powerfail == "0o100000" and args.powerrestore is None
+
+
+def test_setup_to_argv_omits_unset_fields() -> None:
+    argv = setup_to_argv(machine="11/20", powerfail=(True, ""), powerrestore=(False, "0o200000"))
+    args = build_arg_parser().parse_args(argv)
+    assert args.disk is None and args.memory is None and args.save is None
+    assert args.throttle is False and args.debug is False and args.vt11 is False
+    assert args.powerfail == "0o100000"      # flag without value -> const default
+    assert args.powerrestore is None
 
 
 def test_module_imports_headless() -> None:

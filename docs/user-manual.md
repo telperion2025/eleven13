@@ -19,18 +19,19 @@ Optional extras: `dev` (pytest, ruff, mypy — needed for the quality gates) and
 ```
 eleven13 --machine {11/03,11/20,11/70,11/94} [options]
 python -m pdp11.main --machine 11/20 ...     # identical, module form
+eleven13 --gui                               # GUI only: everything chosen in the window (§7)
 ```
 
 | Option | Meaning | Milestone |
 |---|---|---|
-| `--machine {11/03,11/20,11/70,11/94}` | **Required.** Selects the emulated model. There is deliberately no default (spec §4.1). | M1 |
+| `--machine {11/03,11/20,11/70,11/94}` | Selects the emulated model. Deliberately no default (spec §4.1); **required unless `--gui` is given** — in the GUI the machine is picked in the setup form. | M1 |
 | `--memory OCT_WORDS` | RAM size in **octal** words, overriding the profile ceiling. | M1 (parsed) |
 | `--disk IMAGE` | Attach a disk image; format auto-detected from file size per spec §16 (repeatable). Dispatched by container: RK05-sized → RK11 at 177400, RX01-sized → RX11 at 177170, RP06/RP07-sized (512-byte sectors) → RH70 at 176700 on the 11/70 (Massbus). | M3/M4/M5 |
 | `--rl IMAGE` | Attach an RL01/RL02 image to the RL11 at 174400 (repeatable). Raw 256-byte sectors; any 256-aligned file up to RL02 capacity autosizes and zero-pads (SIMH AUTOSIZE, §16). RL images take this flag, not `--disk`, so partial RK05 files stay unambiguous. | post-M8 |
 | `--tape TAP` | Attach a SIMH `.tap` magtape (§16) to the TM11 at 172520 (Unibus) or the TQK11 MSCP controller at 174500 (Q-Bus, 11/94 default). Repeatable; first tape goes to drive 0. | post-M8 |
 | `--papertape PT` | Attach a PC11 paper tape (SIMH `.pt` = raw byte stream, read-only in v1, §16) to the PC11 at 177550. | post-M8 |
 | `--console {vt100,vt52,la36,odt}` | Terminal frontend (default `vt100`): a real VT100/VT52 escape-sequence state machine, or the LA36 hardcopy; `odt` is the plain text console. | M7 |
-| `--gui` | Launch the optional tkinter GUI (console pane + per-machine instructions panel); needs stdlib tkinter. Uses the plain console inside the window — see §7. | post-M8 |
+| `--gui` | Launch the optional tkinter GUI **with no other flags**: a setup form (machine, RAM, disk/tape/paper-tape/boot-ROM files, snapshot save/restore, throttle/debug/vt11, power-fail cycles) pre-filled from any CLI flags, then the console + instructions panes. Needs stdlib tkinter — see §7. | post-M8 |
 | `--vt11` | Attach a VT11-class vector display at 176600 (DPC/MPR/XPR/YPR + display-list engine) rendering into a pixel framebuffer for the optional pixel backend (§8). | post-M8 |
 | `--bootrom FILE` | Load an M9312 512-word boot PROM image (spec §13). Without it, a simplified built-in bootstrap is used — documented as **non-authentic**. | M2/M3 |
 | `--config FILE.json` | Per-run overrides (memory size, devices, volumes) layered over the profile; see `pdp11/config/config.json` for the schema example. | M2+ |
@@ -146,21 +147,33 @@ code paths become testable without real power events (spec §5.5, §11.9) —
 ## 7. Graphical front end (`--gui`)
 
 ```sh
-eleven13 --machine 11/03 --gui                  # needs stdlib tkinter (libtk + display)
+eleven13 --gui                  # needs stdlib tkinter (libtk + display); no other flags needed
 ```
 
 `--gui` opens a tkinter window (the optional tkinter host surface sanctioned by
-spec §8) instead of the stdio console:
+spec §8). It opens on a **setup form** — every option is chosen in the GUI:
+
+- **Machine** dropdown (11/03, 11/20, 11/70, 11/94; pre-selected if `--machine`
+  was also given), **RAM size** in octal words (blank = profile max)
+- **Media**: repeatable browse/add lists for `--disk`, `--rl`, `--tape`,
+  `--papertape`; a boot-ROM picker (`--bootrom`); snapshot **save**/**restore**
+  file pickers (`--save`/`--restore`, §15)
+- **Checkboxes**: `--throttle`, `--debug`, `--vt11`; power-fail / power-restore
+  cycle entries (`--powerfail`/`--powerrestore`, vector 000024, §5.5)
+
+**Start** assembles the machine from the form (via `pdp11.gui.setup_to_argv` →
+the normal CLI parser, so GUI and console share one validation path) and swaps
+to the session view:
 
 - **Left pane — console:** the plain-text DL11 console / ODT / debugger shell.
   Type in the input line at the bottom and press Enter to send a line (Ctrl-C
   in the line sends the BREAK byte). A status bar shows RUN vs `HALT — @`
   plus the bus-cycle counter.
 - **Right pane — instructions:** a per-machine cheat sheet (built by
-  `pdp11.gui.instructions_for`): power-on PC and boot behavior for your
-  machine, the attached `--disk`/`--rl`/`--tape`/`--papertape` media, the ODT
-  command table (`<addr>/` examine, `<addr>\` deposit, `G` go, `Q` quit),
-  the debugger table when `--debug` is on, and the session flags in effect.
+  `pdp11.gui.instructions_for`): power-on PC and boot behavior for the chosen
+  machine, the attached media, the ODT command table (`<addr>/` examine,
+  `<addr>\` deposit, `G` go, `Q` quit), the debugger table when `--debug` is
+  on, and the session flags in effect.
 - **Buttons:** `BREAK (Ctrl-C)` sends the front-panel BREAK key (halts a
   running machine into ODT, §13); `Quit` sends BREAK then closes cleanly
   (a `--save` snapshot still lands on exit).
@@ -168,8 +181,8 @@ spec §8) instead of the stdio console:
 The emulator runs on a worker thread and talks to the widgets only through
 queues, so the deterministic core is untouched; the module imports tkinter
 lazily and the headless test suite (`test_gui.py`) needs no display. On a
-machine without libtk, `--gui` exits with an actionable message — use the
-plain stdio console instead.
+machine without libtk, `--gui` exits with an actionable message. The plain
+stdio console (everything above) remains for headless/scripted use.
 
 ## 8. Exit status
 
