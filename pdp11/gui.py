@@ -36,6 +36,8 @@ stdlib-only (§18.1). The plain stdio console remains available headless
 
 from __future__ import annotations
 
+import json
+import os
 import queue
 import threading
 from argparse import Namespace
@@ -52,6 +54,7 @@ if TYPE_CHECKING:  # pragma: no cover — typing only
     import tkinter as tk
 
 BREAK_BYTE = 0o003  # Ctrl-C / BREAK key (§13)
+RECENT_PLACEHOLDER = "Recent…"
 
 
 def gui_available() -> bool:
@@ -225,6 +228,40 @@ def setup_to_argv(*, machine: str, memory: str = "", disks: list[str] | None = N
     return argv
 
 
+RECENTS_FILE = os.path.expanduser("~/.eleven13_recent_images.json")
+RECENTS_LIMIT = 12
+
+
+def load_recent(path: str = RECENTS_FILE) -> list[str]:
+    """Recently attached media paths, most-recent first. Missing/corrupt file
+    -> [] (recents are best-effort and must never break startup)."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [p for p in data if isinstance(p, str)][:RECENTS_LIMIT]
+
+
+def add_recent(path: str, recents_file: str = RECENTS_FILE,
+               limit: int = RECENTS_LIMIT) -> list[str]:
+    """Record an attached media path at the top of the recents list (deduped,
+    capped at `limit`) and persist it. Returns the new list. Best-effort: a
+    read-only home dir must never block the GUI."""
+    recent = [p for p in load_recent(recents_file) if p != path]
+    recent.insert(0, path)
+    del recent[limit:]
+    try:
+        os.makedirs(os.path.dirname(recents_file) or ".", exist_ok=True)
+        with open(recents_file, "w", encoding="utf-8") as fh:
+            json.dump(recent, fh, indent=1)
+    except OSError:
+        pass
+    return recent
+
+
 class _GuiCtx:
     """Mutable session context shared between the Tk main thread and the
     emulator worker thread (plain attributes; Tk widgets are only touched on
@@ -354,11 +391,28 @@ def run_gui(args: Namespace) -> int:
         for i in reversed(selection):
             lb.delete(i)
 
+    def add_recent_to(lb: tk.Listbox, var: tk.StringVar) -> None:
+        choice = var.get()
+        if choice and choice != RECENT_PLACEHOLDER:
+            if choice not in list(lb.get(0, tk.END)):
+                lb.insert(tk.END, choice)
+        var.set(RECENT_PLACEHOLDER)
+
+    def recent_handler(lb: tk.Listbox, var: tk.StringVar) -> object:
+        def handler(*_args: object) -> None:
+            add_recent_to(lb, var)
+        return handler
+
+    recent_paths = load_recent()
     for row, lb in ((3, disk_lb), (4, rl_lb), (5, tape_lb), (6, pt_lb)):
         tk.Button(form, text="Browse…", command=partial(add_to, lb, "attach image")).grid(
             row=row, column=3, sticky=tk.W)
         tk.Button(form, text="Remove", command=partial(remove_from, lb)).grid(
             row=row, column=4, sticky=tk.W)
+        rvar = tk.StringVar(value=RECENT_PLACEHOLDER)
+        tk.OptionMenu(form, rvar, RECENT_PLACEHOLDER, *recent_paths).grid(
+            row=row, column=5, sticky=tk.W)
+        rvar.trace_add("write", recent_handler(lb, rvar))  # type: ignore[arg-type]
 
     bootrom_var = tk.StringVar(value=args.bootrom or "")
     tk.Label(form, text="Boot ROM (M9312, --bootrom):").grid(row=7, column=0, sticky=tk.W)
@@ -476,6 +530,9 @@ def run_gui(args: Namespace) -> int:
             vt11=vt11_var.get(), save=save_var.get(), restore=restore_var.get(),
             powerfail=(pf_on.get(), pf_var.get()), powerrestore=(pr_on.get(), pr_var.get()))
         sargs = build_arg_parser().parse_args(argv)
+        for media in (sargs.disk or []) + (sargs.rl or []) + (sargs.tape or []) \
+                + (sargs.papertape or []) + ([sargs.bootrom] if sargs.bootrom else []):
+            add_recent(media)
         sargs.gui = False                      # we are already inside the GUI
         backend = TkGuiBackend()
         terminal = ConsoleTerminal(backend)
@@ -531,5 +588,6 @@ def run_gui(args: Namespace) -> int:
     return ctx.code
 
 
-__all__ = ["BOOT_HELP", "DEBUGGER_HELP", "ODT_HELP", "TkGuiBackend", "gui_available",
-           "instructions_for", "run_gui", "setup_to_argv"]
+__all__ = ["BOOT_HELP", "DEBUGGER_HELP", "ODT_HELP", "RECENTS_FILE", "TkGuiBackend",
+           "add_recent", "gui_available", "instructions_for", "load_recent", "run_gui",
+           "setup_to_argv"]

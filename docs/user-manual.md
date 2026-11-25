@@ -156,8 +156,10 @@ spec §8). It opens on a **setup form** — every option is chosen in the GUI:
 - **Machine** dropdown (11/03, 11/20, 11/70, 11/94; pre-selected if `--machine`
   was also given), **RAM size** in octal words (blank = profile max)
 - **Media**: repeatable browse/add lists for `--disk`, `--rl`, `--tape`,
-  `--papertape`; a boot-ROM picker (`--bootrom`); snapshot **save**/**restore**
-  file pickers (`--save`/`--restore`, §15)
+  `--papertape` — each with a **Recent ▾** dropdown fed by
+  `~/.eleven13_recent_images.json` (updated automatically on every Start,
+  most-recent first, capped at 12); a boot-ROM picker (`--bootrom`); snapshot
+  **save**/**restore** file pickers (`--save`/`--restore`, §15)
 - **Checkboxes**: `--throttle`, `--debug`, `--vt11`; power-fail / power-restore
   cycle entries (`--powerfail`/`--powerrestore`, vector 000024, §5.5)
 

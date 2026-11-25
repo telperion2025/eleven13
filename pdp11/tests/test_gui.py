@@ -11,7 +11,15 @@ from __future__ import annotations
 import pytest
 
 from pdp11.config.profiles import PROFILES
-from pdp11.gui import ODT_HELP, TkGuiBackend, gui_available, instructions_for, setup_to_argv
+from pdp11.gui import (
+    ODT_HELP,
+    TkGuiBackend,
+    add_recent,
+    gui_available,
+    instructions_for,
+    load_recent,
+    setup_to_argv,
+)
 from pdp11.main import build_arg_parser, main
 
 
@@ -126,3 +134,24 @@ def test_odt_help_matches_front_panel_commands() -> None:
     # the cheat sheet must stay in sync with pdp11/control/front_panel.py
     for token in ("<addr>/", "<addr>\\", "G [addr]", "Q"):
         assert token in ODT_HELP
+
+
+def test_recent_images_roundtrip_dedup_and_order(tmp_path) -> None:
+    f = str(tmp_path / "recent.json")
+    assert load_recent(f) == []                       # missing file -> empty
+    assert add_recent("/a.img", f) == ["/a.img"]
+    add_recent("/b.tap", f)
+    add_recent("/a.img", f)                           # re-attach moves to top
+    assert load_recent(f) == ["/a.img", "/b.tap"]
+
+
+def test_recent_images_capped_and_corrupt_file_safe(tmp_path) -> None:
+    f = str(tmp_path / "recent.json")
+    for i in range(20):
+        add_recent(f"/img{i}", f, limit=5)
+    assert load_recent(f) == [f"/img{i}" for i in range(19, 14, -1)]
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json", encoding="utf-8")
+    assert load_recent(str(bad)) == []
+    bad.write_text('{"not": "a list"}', encoding="utf-8")
+    assert load_recent(str(bad)) == []
