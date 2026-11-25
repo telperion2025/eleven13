@@ -61,6 +61,7 @@ class MachineProfile:
     bus: BusType                              # primary system bus
     has_mmu: bool                             # False on 11/03 and 11/20
     has_fpu: bool                             # FP11 fitted? (11/70 optional, 11/94 on-chip)
+    has_fis: bool                             # KEF11 FIS (0o075xxx) fitted? (11/03 only)
     physical_bits: int                        # 16 (11/20), 18 (11/03), 22 (11/70, 11/94)
     max_ram_words: int                        # physical RAM ceiling in 16-bit words
     bus_error_model: BusErrorModel            # §5.5 divergence
@@ -80,7 +81,7 @@ PROFILES: dict[str, MachineProfile] = {
     "11/20": MachineProfile(
         key="11/20", cpu_name="KD11-B",
         caps=frozenset({CpuCap.BASE}),
-        bus=BusType.UNIBUS, has_mmu=False, has_fpu=False,
+        bus=BusType.UNIBUS, has_mmu=False, has_fpu=False, has_fis=False,
         physical_bits=16, max_ram_words=0o20000,          # 56 KB usable after I/O page
         bus_error_model=BusErrorModel.UNIBUS_TIMEOUT,
         power_on_pc=0o000000,                              # no ROM: console-switch load (§13)
@@ -91,7 +92,7 @@ PROFILES: dict[str, MachineProfile] = {
     "11/03": MachineProfile(
         key="11/03", cpu_name="KD11-F (LSI-11)",
         caps=frozenset({CpuCap.BASE, CpuCap.EIS}),        # KEF11 assumed fitted
-        bus=BusType.QBUS, has_mmu=False, has_fpu=False,
+        bus=BusType.QBUS, has_mmu=False, has_fpu=False, has_fis=True,
         physical_bits=18, max_ram_words=0o100000,         # 64 KB
         bus_error_model=BusErrorModel.LSI11_TOLERANT,
         power_on_pc=0o173000,                             # boot ROM search (§13)
@@ -103,7 +104,7 @@ PROFILES: dict[str, MachineProfile] = {
     "11/70": MachineProfile(
         key="11/70", cpu_name="KD11-Z",
         caps=frozenset({CpuCap.BASE, CpuCap.EIS, CpuCap.FPU, CpuCap.MMU}),
-        bus=BusType.UNIBUS, has_mmu=True, has_fpu=True,   # FP11 assumed fitted
+        bus=BusType.UNIBUS, has_mmu=True, has_fpu=True, has_fis=False,   # FP11 assumed fitted
         physical_bits=22, max_ram_words=0o10000000,      # 4 MB = full 22-bit space (M5 fix)
         bus_error_model=BusErrorModel.UNIBUS_TIMEOUT,
         power_on_pc=0o173000,                             # M9312 boot ROM (§13)
@@ -114,7 +115,7 @@ PROFILES: dict[str, MachineProfile] = {
     "11/94": MachineProfile(
         key="11/94", cpu_name="DCJ-11 (J-11)",
         caps=frozenset({CpuCap.BASE, CpuCap.EIS, CpuCap.CIS, CpuCap.FPU, CpuCap.MMU}),
-        bus=BusType.QBUS, has_mmu=True, has_fpu=True,
+        bus=BusType.QBUS, has_mmu=True, has_fpu=True, has_fis=False,
         physical_bits=22, max_ram_words=0o10000000,       # 4 MB; async Q22-CD mapping (M5 fix)
         bus_error_model=BusErrorModel.DCJ11_STRICT,
         power_on_pc=0o173000,

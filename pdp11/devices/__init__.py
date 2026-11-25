@@ -9,6 +9,6 @@ M1 made all device modules documented stubs raising NotImplementedError per
 RH70/RP) and post-M8 added TM11/TU10, RL11/RL01/RL02, PC11, KW11-P and the
 TQK11 MSCP command-ring layer (register/ring/packet layouts cross-checked
 against SIMH pdp11_tm/rl/pt/pclk/tq.c + pdp11_uqssp.h/pdp11_mscp.h — see
-docs/acceptance-checklist.md). Remaining loud stubs: the VT11 framebuffer,
-FIS, and CIS CVT*/CRC (§19.10/§22.4).
+docs/acceptance-checklist.md). Remaining loud stub: the CIS CVT*/CRC ops
+(§19.10/§22.4).
 """

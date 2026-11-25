@@ -327,13 +327,15 @@ def test_1120_noops_microcoded_only_opcodes():
     assert cpu.state.R[Reg.PC] == 0o000102 and cpu.state.R[2] == 0
 
 
-def test_fis_still_stubbed_on_eis_fitted_machine():
-    """§19.10: on the 11/03 (KEF11 -> EIS cap present) the M4-landed EIS opcodes
-    execute (see test_eis.py); FIS 0o075xxx is still a stub and must crash
-    loudly — never silently no-op."""
-    cpu, _b = make_machine(profile_key="11/03", program=[0o075000, 0o000005], pc=0o000100)
-    with pytest.raises(NotImplementedError):
-        cpu.step()
+def test_fis_reserved_on_kd11b_without_eis_cap():
+    """Sec 19.10/5.4: on the 11/20 (KD11-B, no EIS cap) 0o075xxx is not in the
+    KD11B no-op set -- it traps reserved through 000010, never silently runs.
+    (On the 11/03 the KEF11 FIS executes -- pinned by test_fis.py.)"""
+    cpu, b = make_machine(profile_key="11/20", program=[0o075005], pc=0o000100)
+    b.ram.write_word(0o000010, 0o004000)                           # reserved vector
+    b.ram.write_word(0o000012, 0)
+    cpu.step()
+    assert cpu.state.R[Reg.PC] == 0o004000                         # trapped to handler
 
 
 def test_tbit_trace_trap():
